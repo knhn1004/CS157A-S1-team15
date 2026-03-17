@@ -36,7 +36,7 @@ INSERT INTO TimeBlock (Block_ID, Name, Description, Date_Recurring, Created_User
 ('TB009', 'Group Work', 'Group project time', 'Tuesday', 'U009'),
 ('TB010', 'Office Hours', 'Visit office hours', 'Thursday', 'U010');
 
--- StudySession
+
 INSERT INTO StudySession (Session_ID, Name, Time, Date, Location, Description, Capacity, Topic, Visibility, Organizer_Username) VALUES
 ('SS001', 'SQL Basics', '10:00', '2025-04-01', 'Library Room A', 'Intro to SQL queries', 10, 'Databases', 'Public', 'sarah01'),
 ('SS002', 'Normalization Review', '14:00', '2025-04-02', 'Library Room B', 'Review 1NF to 3NF', 8, 'Databases', 'Public', 'oliver02'),
@@ -49,7 +49,7 @@ INSERT INTO StudySession (Session_ID, Name, Time, Date, Location, Description, C
 ('SS009', 'Presentation Prep', '12:00', '2025-04-09', 'Room 201', 'Practice presentations', 8, 'Project', 'Friends', 'student9'),
 ('SS010', 'Homework Help', '17:00', '2025-04-10', 'Lab 101', 'Help with assignments', 10, 'Databases', 'Public', 'student10');
 
--- Class
+
 INSERT INTO Class (Subject_Abbr, Course_No, Section, Class_Name, Time, Days) VALUES
 ('CS', '157A', '01', 'Introduction to Database Management Systems', '10:30', 'MW'),
 ('CS', '157A', '02', 'Introduction to Database Management Systems', '12:00', 'MW'),
@@ -62,7 +62,7 @@ INSERT INTO Class (Subject_Abbr, Course_No, Section, Class_Name, Time, Days) VAL
 ('CS', '158A', '01', 'Computer Networks', '13:00', 'TTh'),
 ('CS', '149', '01', 'Operating Systems', '16:00', 'MW');
 
--- Enrolls
+
 INSERT INTO Enrolls (Username, Subject_Abbr, Course_No, Section, Notes) VALUES
 ('sarah01', 'CS', '157A', '01', 'Need to review SQL'),
 ('oliver02', 'CS', '157A', '01', 'Focus on normalization'),
