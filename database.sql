@@ -6,8 +6,7 @@ CREATE TABLE School (
 );
 
 CREATE TABLE Users (
-    User_ID VARCHAR(50) PRIMARY KEY,
-    Username VARCHAR(50) UNIQUE NOT NULL,
+    Username VARCHAR(50) PRIMARY KEY,
     Email VARCHAR(100) NOT NULL,
     Name VARCHAR(50) NOT NULL,
     Password_Hash VARCHAR(100) NOT NULL,
@@ -22,14 +21,14 @@ CREATE TABLE TimeBlock (
     Name VARCHAR(100) NOT NULL,
     Description VARCHAR(200),
     Date_Recurring VARCHAR(50),
-    Created_User_ID VARCHAR(50),
-    FOREIGN KEY (Created_User_ID) REFERENCES Users(User_ID)
+    Created_Username VARCHAR(50),
+    FOREIGN KEY (Created_Username) REFERENCES Users(Username)
 );
 CREATE TABLE StudySession (
     Session_ID VARCHAR(50) PRIMARY KEY,
     Name VARCHAR(100) NOT NULL,
-    Time VARCHAR(50),
-    Date VARCHAR(50),
+    Time TIME,
+    Date DATE,
     Location VARCHAR(100),
     Description VARCHAR(200),
     Capacity INTEGER,
@@ -44,7 +43,7 @@ CREATE TABLE Class (
     Course_No VARCHAR(20) NOT NULL,
     Section VARCHAR(10) NOT NULL,
     Class_Name VARCHAR(100),
-    Time VARCHAR(50),
+    Time TIME,
     Days VARCHAR(50),
     PRIMARY KEY (Subject_Abbr, Course_No, Section)
 );
@@ -93,7 +92,7 @@ CREATE TABLE Friend_Request (
     Sender_Username VARCHAR(50) NOT NULL,
     Receiver_Username VARCHAR(50) NOT NULL,
     Status VARCHAR(50),
-    Created_At VARCHAR(50),
+    Created_At DATE,
     PRIMARY KEY (Sender_Username, Receiver_Username),
     FOREIGN KEY (Sender_Username) REFERENCES Users(Username),
     FOREIGN KEY (Receiver_Username) REFERENCES Users(Username)
