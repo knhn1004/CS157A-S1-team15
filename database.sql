@@ -59,3 +59,42 @@ CREATE TABLE Enrolls (
     FOREIGN KEY (Username) REFERENCES Users(Username),
     FOREIGN KEY (Subject_Abbr, Course_No, Section) REFERENCES Class(Subject_Abbr, Course_No, Section)
 );
+
+CREATE TABLE Attends (
+    Session_ID VARCHAR(50) NOT NULL,
+    Username VARCHAR(50) NOT NULL,
+    Status VARCHAR(50),
+    PRIMARY KEY (Session_ID, Username),
+    FOREIGN KEY (Session_ID) REFERENCES StudySession(Session_ID),
+    FOREIGN KEY (Username) REFERENCES Users(Username)
+);
+
+CREATE TABLE Invited_To (
+    Inviter VARCHAR(50) NOT NULL,
+    Invitee VARCHAR(50) NOT NULL,
+    Session_ID VARCHAR(50) NOT NULL,
+    Response VARCHAR(50),
+    PRIMARY KEY (Inviter, Invitee, Session_ID),
+    FOREIGN KEY (Inviter) REFERENCES Users(Username),
+    FOREIGN KEY (Invitee) REFERENCES Users(Username),
+    FOREIGN KEY (Session_ID) REFERENCES StudySession(Session_ID)
+);
+
+CREATE TABLE Friends_With (
+    Username1 VARCHAR(50) NOT NULL,
+    Username2 VARCHAR(50) NOT NULL,
+    Status VARCHAR(50),
+    PRIMARY KEY (Username1, Username2),
+    FOREIGN KEY (Username1) REFERENCES Users(Username),
+    FOREIGN KEY (Username2) REFERENCES Users(Username)
+);
+
+CREATE TABLE Friend_Request (
+    Sender_Username VARCHAR(50) NOT NULL,
+    Receiver_Username VARCHAR(50) NOT NULL,
+    Status VARCHAR(50),
+    Created_At VARCHAR(50),
+    PRIMARY KEY (Sender_Username, Receiver_Username),
+    FOREIGN KEY (Sender_Username) REFERENCES Users(Username),
+    FOREIGN KEY (Receiver_Username) REFERENCES Users(Username)
+);
