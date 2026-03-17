@@ -75,3 +75,50 @@ INSERT INTO Enrolls (Username, Subject_Abbr, Course_No, Section, Notes) VALUES
 ('student9', 'CS', '160', '01', 'Agile methods'),
 ('student10', 'CS', '149', '01', 'Process scheduling');
 
+INSERT INTO Attends (Session_ID, Username, Status) VALUES
+('SS001', 'sarah01', 'Confirmed'),
+('SS001', 'oliver02', 'Confirmed'),
+('SS001', 'karan03', 'Confirmed'),
+('SS002', 'mikewu04', 'Confirmed'),
+('SS002', 'student5', 'Pending'),
+('SS003', 'student6', 'Confirmed'),
+('SS004', 'student7', 'Declined'),
+('SS005', 'student8', 'Confirmed'),
+('SS006', 'student9', 'Pending'),
+('SS007', 'student10', 'Confirmed');
+
+INSERT INTO Invited_To (Inviter, Invitee, Session_ID, Response) VALUES
+('sarah01', 'oliver02', 'SS001', 'Accepted'),
+('sarah01', 'karan03', 'SS001', 'Accepted'),
+('sarah01', 'mikewu04', 'SS001', 'Pending'),
+('oliver02', 'student5', 'SS002', 'Accepted'),
+('karan03', 'student6', 'SS003', 'Declined'),
+('mikewu04', 'student7', 'SS004', 'Accepted'),
+('student5', 'student8', 'SS005', 'Pending'),
+('student6', 'student9', 'SS006', 'Accepted'),
+('student7', 'student10', 'SS007', 'Accepted'),
+('student8', 'sarah01', 'SS008', 'Pending');
+
+INSERT INTO Friends_With (Username1, Username2, Status) VALUES
+('sarah01', 'oliver02', 'Accepted'),
+('sarah01', 'karan03', 'Accepted'),
+('sarah01', 'mikewu04', 'Accepted'),
+('oliver02', 'karan03', 'Accepted'),
+('oliver02', 'mikewu04', 'Accepted'),
+('karan03', 'mikewu04', 'Accepted'),
+('student5', 'student6', 'Accepted'),
+('student7', 'student8', 'Accepted'),
+('student9', 'student10', 'Accepted'),
+('sarah01', 'student5', 'Accepted');
+
+INSERT INTO Friend_Request (Sender_Username, Receiver_Username, Status, Created_At) VALUES
+('sarah01', 'student6', 'Pending', '2025-03-01'),
+('oliver02', 'student7', 'Pending', '2025-03-02'),
+('karan03', 'student8', 'Accepted', '2025-03-03'),
+('mikewu04', 'student9', 'Declined', '2025-03-04'),
+('student5', 'sarah01', 'Accepted', '2025-03-05'),
+('student6', 'oliver02', 'Pending', '2025-03-06'),
+('student7', 'karan03', 'Accepted', '2025-03-07'),
+('student8', 'mikewu04', 'Pending', '2025-03-08'),
+('student9', 'student5', 'Declined', '2025-03-09'),
+('student10', 'student6', 'Pending', '2025-03-10');
