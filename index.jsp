@@ -29,6 +29,9 @@
   String registerMsg = "";
   boolean registerSuccess = false;
   String activeTab = "login"; // which tab to show on page load
+  String accountDeletedMsg = "1".equals(request.getParameter("deleted"))
+    ? "Account successfully deleted."
+    : "";
 
   // ── LOGIN ──────────────────────────────────────────────────────────────────
   if ("login".equals(action)) {
@@ -229,6 +232,17 @@
       text-align: center;
       min-height: 18px;
     }
+
+    .global-msg {
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      text-align: center;
+      background: #dcfce7;
+      color: #166534;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -237,6 +251,10 @@
       <h1>&#128218; SpartanStudyCircle</h1>
       <p>San José State University</p>
     </div>
+
+    <% if (!accountDeletedMsg.isEmpty()) { %>
+      <div class="global-msg"><%= accountDeletedMsg %></div>
+    <% } %>
 
     <div class="tabs">
       <div class="tab" id="tab-login"    onclick="show('login',    this)">Log In</div>
