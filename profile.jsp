@@ -1,5 +1,14 @@
-<%@ page import="java.sql.*" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
+<%@ page import="java.sql.*, java.security.*" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ page session="true" %>
+<%!
+  private String hashPassword(String password) throws Exception {
+    MessageDigest md = MessageDigest.getInstance("SHA-256");
+    byte[] hash = md.digest(password.getBytes("UTF-8"));
+    StringBuilder sb = new StringBuilder();
+    for (byte b : hash) sb.append(String.format("%02x", b));
+    return sb.toString();
+  }
+%>
 <%
   // Session guard
   String username = (String) session.getAttribute("username");
@@ -15,9 +24,141 @@
 
   String successMsg = "";
   String errorMsg   = "";
+  String deleteErrorMsg = "";
 
+  // ── HANDLE DELETE ACCOUNT ─────────────────────────────────────────────────
+  if ("delete_account".equals(request.getParameter("action"))) {
+    String confirmPhrase = request.getParameter("confirmPhrase") != null ? request.getParameter("confirmPhrase").trim() : "";
+    String deletePassword = request.getParameter("deletePassword") != null ? request.getParameter("deletePassword") : "";
+    String permanentConfirm = request.getParameter("permanentConfirm");
+
+    if (deletePassword.isEmpty()) {
+      deleteErrorMsg = "Please re-enter your password to verify your identity.";
+    } else if (!"DELETE".equals(confirmPhrase)) {
+      deleteErrorMsg = "Type DELETE to confirm permanent account deletion.";
+    } else if (!"yes".equals(permanentConfirm)) {
+      deleteErrorMsg = "Please confirm you understand this action is permanent.";
+    } else {
+      Connection con = null;
+      try {
+        Class.forName("com.mysql.cj.jdbc.Driver");
+        con = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+        con.setAutoCommit(false);
+
+        // Re-authenticate user before deletion
+        PreparedStatement authPs = con.prepareStatement(
+          "SELECT Username FROM Users WHERE Username = ? AND Password_Hash = ?"
+        );
+        authPs.setString(1, username);
+        authPs.setString(2, hashPassword(deletePassword));
+        ResultSet authRs = authPs.executeQuery();
+        boolean isVerified = authRs.next();
+        authRs.close();
+        authPs.close();
+
+        if (!isVerified) {
+          con.rollback();
+          deleteErrorMsg = "Password verification failed. Account was not deleted.";
+        } else {
+          // Remove rows tied to sessions owned by this user
+          PreparedStatement ownedInvitesPs = con.prepareStatement(
+            "DELETE FROM Invited_To WHERE Session_ID IN (SELECT Session_ID FROM StudySession WHERE Organizer_Username = ?)"
+          );
+          ownedInvitesPs.setString(1, username);
+          ownedInvitesPs.executeUpdate();
+          ownedInvitesPs.close();
+
+          PreparedStatement ownedAttendsPs = con.prepareStatement(
+            "DELETE FROM Attends WHERE Session_ID IN (SELECT Session_ID FROM StudySession WHERE Organizer_Username = ?)"
+          );
+          ownedAttendsPs.setString(1, username);
+          ownedAttendsPs.executeUpdate();
+          ownedAttendsPs.close();
+
+          // Remove user-associated rows across related tables
+          PreparedStatement invitedPs = con.prepareStatement(
+            "DELETE FROM Invited_To WHERE Inviter = ? OR Invitee = ?"
+          );
+          invitedPs.setString(1, username);
+          invitedPs.setString(2, username);
+          invitedPs.executeUpdate();
+          invitedPs.close();
+
+          PreparedStatement attendsPs = con.prepareStatement(
+            "DELETE FROM Attends WHERE Username = ?"
+          );
+          attendsPs.setString(1, username);
+          attendsPs.executeUpdate();
+          attendsPs.close();
+
+          PreparedStatement enrollsPs = con.prepareStatement(
+            "DELETE FROM Enrolls WHERE Username = ?"
+          );
+          enrollsPs.setString(1, username);
+          enrollsPs.executeUpdate();
+          enrollsPs.close();
+
+          PreparedStatement friendsPs = con.prepareStatement(
+            "DELETE FROM Friends_With WHERE Username1 = ? OR Username2 = ?"
+          );
+          friendsPs.setString(1, username);
+          friendsPs.setString(2, username);
+          friendsPs.executeUpdate();
+          friendsPs.close();
+
+          PreparedStatement requestsPs = con.prepareStatement(
+            "DELETE FROM Friend_Request WHERE Sender_Username = ? OR Receiver_Username = ?"
+          );
+          requestsPs.setString(1, username);
+          requestsPs.setString(2, username);
+          requestsPs.executeUpdate();
+          requestsPs.close();
+
+          PreparedStatement timeblockPs = con.prepareStatement(
+            "DELETE FROM TimeBlock WHERE Created_Username = ?"
+          );
+          timeblockPs.setString(1, username);
+          timeblockPs.executeUpdate();
+          timeblockPs.close();
+
+          PreparedStatement sessionsPs = con.prepareStatement(
+            "DELETE FROM StudySession WHERE Organizer_Username = ?"
+          );
+          sessionsPs.setString(1, username);
+          sessionsPs.executeUpdate();
+          sessionsPs.close();
+
+          PreparedStatement userPs = con.prepareStatement(
+            "DELETE FROM Users WHERE Username = ?"
+          );
+          userPs.setString(1, username);
+          int deletedUsers = userPs.executeUpdate();
+          userPs.close();
+
+          if (deletedUsers != 1) {
+            con.rollback();
+            deleteErrorMsg = "Account deletion failed. Please try again.";
+          } else {
+            con.commit();
+            session.invalidate();
+            response.sendRedirect("index.jsp?deleted=1");
+            return;
+          }
+        }
+      } catch (Exception e) {
+        if (con != null) try { con.rollback(); } catch (Exception ignore) {}
+        deleteErrorMsg = "Account deletion failed: " + e.getMessage();
+      } finally {
+        if (con != null) {
+          try {
+            con.setAutoCommit(true);
+            con.close();
+          } catch (Exception ignore) {}
+        }
+      }
+    }
   // ── HANDLE UPDATE ──────────────────────────────────────────────────────────
-  if ("update".equals(request.getParameter("action"))) {
+  } else if ("update".equals(request.getParameter("action"))) {
     String newEmail = request.getParameter("email");
     String newName  = request.getParameter("name");
     String newMajor = request.getParameter("major");
@@ -201,6 +342,12 @@
 
     button:hover { background: #004490; }
 
+    .btn-danger {
+      background: #b91c1c;
+      margin-top: 12px;
+    }
+    .btn-danger:hover { background: #991b1b; }
+
     .alert {
       padding: 12px 16px;
       border-radius: 8px;
@@ -215,6 +362,93 @@
       font-size: 12px;
       color: #9ca3af;
       margin-top: 4px;
+    }
+
+    .danger-zone {
+      margin-top: 24px;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 18px;
+    }
+
+    .danger-zone h3 {
+      font-size: 14px;
+      color: #b91c1c;
+      margin-bottom: 6px;
+    }
+
+    .danger-zone p {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 10px;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(17, 24, 39, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 999;
+    }
+
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      width: 100%;
+      max-width: 480px;
+      background: #fff;
+      border-radius: 12px;
+      padding: 22px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+
+    .modal h3 {
+      color: #b91c1c;
+      font-size: 17px;
+      margin-bottom: 6px;
+    }
+
+    .modal p {
+      font-size: 13px;
+      color: #374151;
+      margin-bottom: 14px;
+    }
+
+    .modal-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .btn-secondary {
+      width: 100%;
+      padding: 11px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      background: #fff;
+      color: #374151;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-secondary:hover { background: #f9fafb; }
+
+    .confirm-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      color: #374151;
+      margin-top: 6px;
+    }
+
+    .confirm-check input {
+      width: auto;
+      margin-top: 2px;
     }
   </style>
 </head>
@@ -244,6 +478,9 @@
       <% } %>
       <% if (!errorMsg.isEmpty()) { %>
         <div class="alert alert-error"><%= errorMsg %></div>
+      <% } %>
+      <% if (!deleteErrorMsg.isEmpty()) { %>
+        <div class="alert alert-error"><%= deleteErrorMsg %></div>
       <% } %>
 
       <form method="POST" action="profile.jsp">
@@ -284,8 +521,71 @@
 
         <button type="submit">Save Changes</button>
       </form>
+
+      <div class="danger-zone">
+        <h3>Delete Account</h3>
+        <p>Permanently deletes your account and all associated data. This cannot be undone.</p>
+        <button type="button" class="btn-danger" onclick="openDeleteModal()">Delete My Account</button>
+      </div>
     </div>
   </div>
 
+  <div id="deleteModal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal">
+      <h3>Confirm Account Deletion</h3>
+      <p>To proceed, log in again with your password and confirm permanent deletion.</p>
+
+      <form method="POST" action="profile.jsp">
+        <input type="hidden" name="action" value="delete_account" />
+
+        <div class="field">
+          <label>Username</label>
+          <input type="text" value="<%= username %>" readonly />
+        </div>
+
+        <div class="field">
+          <label>Password (required)</label>
+          <input type="password" name="deletePassword" placeholder="Re-enter password" required />
+        </div>
+
+        <div class="field">
+          <label>Type DELETE to confirm</label>
+          <input type="text" name="confirmPhrase" placeholder="DELETE" required />
+        </div>
+
+        <label class="confirm-check">
+          <input type="checkbox" name="permanentConfirm" value="yes" required />
+          <span>I understand this permanently deletes my account, enrollments, sessions, friends, invites, and related records.</span>
+        </label>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+          <button type="submit" class="btn-danger">Permanently Delete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    function openDeleteModal() {
+      var modal = document.getElementById('deleteModal');
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDeleteModal() {
+      var modal = document.getElementById('deleteModal');
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+
+    window.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeDeleteModal();
+    });
+
+    <% if (!deleteErrorMsg.isEmpty()) { %>
+      window.addEventListener('DOMContentLoaded', openDeleteModal);
+    <% } %>
+  </script>
 </body>
 </html>
