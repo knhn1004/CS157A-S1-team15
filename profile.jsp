@@ -225,6 +225,7 @@
     <div class="nav-links">
       <a href="home.jsp">Home</a>
       <a href="create_session.jsp">+ Create Session</a>
+      <a href="people.jsp">Find People</a>
       <a href="profile.jsp" class="active">My Profile</a>
     </div>
     <div class="user-info">
