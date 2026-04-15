@@ -208,6 +208,20 @@
     .badge-private  { background: #fee2e2; color: #991b1b; }
     .badge-friends  { background: #dbeafe; color: #1e40af; }
 
+    .table-link {
+      color: #0055A2;
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .table-link:hover { text-decoration: underline; }
+
+    .muted {
+      color: #9ca3af;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
     .no-data {
       text-align: center;
       color: #9ca3af;
@@ -317,6 +331,7 @@
               <th>Location</th>
               <th>Spots</th>
               <th>Visibility</th>
+              <th>Attendees</th>
             </tr>
           </thead>
           <tbody>
@@ -328,6 +343,8 @@
               String badgeClass = "badge-public";
               if      ("Private".equals(vis)) badgeClass = "badge-private";
               else if ("Friends".equals(vis)) badgeClass = "badge-friends";
+              String orgUser = sessions.getString("Organizer_Username");
+              boolean rowIsOrg = orgUser != null && orgUser.equals(username);
           %>
             <tr>
               <td><strong><%= sessions.getString("Name") %></strong></td>
@@ -337,6 +354,13 @@
               <td><%= sessions.getString("Location") != null ? sessions.getString("Location") : "—" %></td>
               <td><%= sessions.getObject("Capacity") != null ? sessions.getInt("Capacity") : "—" %></td>
               <td><span class="badge <%= badgeClass %>"><%= vis %></span></td>
+              <td>
+                <% if (rowIsOrg) { %>
+                  <a class="table-link" href="session_attendees.jsp?sessionId=<%= sessions.getString("Session_ID") %>">View Attendees</a>
+                <% } else { %>
+                  <span class="muted">Organizer only</span>
+                <% } %>
+              </td>
             </tr>
           <%
             }
@@ -344,7 +368,7 @@
             sessionCon.close();
           %>
           <% if (!hasRows) { %>
-            <tr><td colspan="7" class="no-data">No public sessions found.</td></tr>
+            <tr><td colspan="8" class="no-data">No public sessions found.</td></tr>
           <% } %>
           </tbody>
         </table>
