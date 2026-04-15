@@ -244,6 +244,7 @@
       <a href="home.jsp">Home</a>
       <a href="create_session.jsp" class="active">+ Create Session</a>
       <a href="people.jsp">Find People</a>
+      <a href="friends.jsp">Friends</a>
       <a href="profile.jsp">My Profile</a>
     </div>
     <div class="user-info">
