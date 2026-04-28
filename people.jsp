@@ -13,6 +13,103 @@
   final String DB_USER = "root";
   final String DB_PASS = "password";
 
+  String actionMsg  = "";
+  String actionKind = "";
+
+  if ("POST".equalsIgnoreCase(request.getMethod())
+      && "send_friend_request".equals(request.getParameter("action"))) {
+
+    String target = request.getParameter("receiver");
+    if (target != null) target = target.trim();
+
+    if (target == null || target.isEmpty()) {
+      actionKind = "error"; actionMsg = "Missing recipient.";
+    } else if (target.equals(username)) {
+      actionKind = "error"; actionMsg = "You cannot send a friend request to yourself.";
+    } else {
+      Connection actCon = null;
+      try {
+        Class.forName("com.mysql.cj.jdbc.Driver");
+        actCon = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+
+        PreparedStatement userCheck = actCon.prepareStatement(
+          "SELECT 1 FROM Users WHERE Username = ?"
+        );
+        userCheck.setString(1, target);
+        ResultSet userRs = userCheck.executeQuery();
+        boolean userExists = userRs.next();
+        userRs.close(); userCheck.close();
+
+        if (!userExists) {
+          actionKind = "error"; actionMsg = "That user does not exist.";
+        } else {
+          PreparedStatement frCheck = actCon.prepareStatement(
+            "SELECT 1 FROM Friends_With " +
+            " WHERE (Username1 = ? AND Username2 = ?) OR (Username1 = ? AND Username2 = ?) "
+          );
+          frCheck.setString(1, username);
+          frCheck.setString(2, target);
+          frCheck.setString(3, target);
+          frCheck.setString(4, username);
+          ResultSet frRs = frCheck.executeQuery();
+          boolean alreadyFriends = frRs.next();
+          frRs.close(); frCheck.close();
+
+          if (alreadyFriends) {
+            actionKind = "error"; actionMsg = "You are already friends with @" + target + ".";
+          } else {
+            PreparedStatement reqCheck = actCon.prepareStatement(
+              "SELECT Sender_Username, Receiver_Username, Status FROM Friend_Request " +
+              " WHERE (Sender_Username = ? AND Receiver_Username = ?) " +
+              "    OR (Sender_Username = ? AND Receiver_Username = ?)"
+            );
+            reqCheck.setString(1, username);
+            reqCheck.setString(2, target);
+            reqCheck.setString(3, target);
+            reqCheck.setString(4, username);
+            ResultSet reqRs = reqCheck.executeQuery();
+
+            String existingSender = null;
+            String existingStatus = null;
+            if (reqRs.next()) {
+              existingSender = reqRs.getString("Sender_Username");
+              existingStatus = reqRs.getString("Status");
+            }
+            reqRs.close(); reqCheck.close();
+
+            boolean isPending = existingStatus != null && existingStatus.equalsIgnoreCase("Pending");
+
+            if (existingSender != null && existingSender.equals(username) && isPending) {
+              actionKind = "error";
+              actionMsg = "You already have a pending friend request to @" + target + ".";
+            } else if (existingSender != null && !existingSender.equals(username) && isPending) {
+              actionKind = "error";
+              actionMsg = "@" + target + " has already sent you a friend request \u2014 check your Friends page to accept.";
+            } else {
+              PreparedStatement upsert = actCon.prepareStatement(
+                "INSERT INTO Friend_Request (Sender_Username, Receiver_Username, Status, Created_At) " +
+                "VALUES (?, ?, 'Pending', CURRENT_DATE) " +
+                "ON DUPLICATE KEY UPDATE Status = 'Pending', Created_At = CURRENT_DATE"
+              );
+              upsert.setString(1, username);
+              upsert.setString(2, target);
+              upsert.executeUpdate();
+              upsert.close();
+
+              actionKind = "success";
+              actionMsg = "Friend request sent to @" + target + ".";
+            }
+          }
+        }
+      } catch (Exception e) {
+        actionKind = "error";
+        actionMsg = "Database error: " + e.getMessage();
+      } finally {
+        if (actCon != null) try { actCon.close(); } catch (Exception ignore) {}
+      }
+    }
+  }
+
   String searchText       = request.getParameter("q") != null ? request.getParameter("q").trim() : "";
   String majorFilter      = request.getParameter("major") != null ? request.getParameter("major").trim() : "";
   String yearFilter       = request.getParameter("year") != null ? request.getParameter("year").trim() : "";
@@ -197,6 +294,10 @@
       color: #1e40af;
     }
 
+    .badge-friend   { background: #dcfce7; color: #166534; }
+    .badge-pending  { background: #fef3c7; color: #92400e; }
+    .badge-incoming { background: #ede9fe; color: #5b21b6; }
+
     .no-data {
       text-align: center;
       color: #9ca3af;
@@ -211,6 +312,39 @@
       background: #fee2e2;
       border-radius: 8px;
     }
+
+    .banner-success {
+      background: #dcfce7;
+      color: #166534;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .banner-error {
+      background: #fee2e2;
+      color: #991b1b;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .add-btn {
+      padding: 6px 12px;
+      background: #0055A2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .add-btn:hover { background: #004490; }
   </style>
 </head>
 <body>
@@ -232,6 +366,12 @@
   </nav>
 
   <div class="container">
+    <% if (!actionMsg.isEmpty() && "success".equals(actionKind)) { %>
+      <div class="banner-success">&#10003; <%= actionMsg %></div>
+    <% } else if (!actionMsg.isEmpty()) { %>
+      <div class="banner-error"><%= actionMsg %></div>
+    <% } %>
+
     <div class="card">
       <h2>Find Classmates</h2>
       <p class="subtitle">Browse, search, and filter users. Suggestions are ranked by shared classes, major, and year.</p>
@@ -333,7 +473,10 @@
           sql.append("           THEN CONCAT(e2.Subject_Abbr, '-', e2.Course_No, '-', e2.Section) ");
           sql.append("           ELSE NULL ");
           sql.append("         END)");
-          sql.append("       ) AS suggestion_score ");
+          sql.append("       ) AS suggestion_score, ");
+          sql.append("       MAX(CASE WHEN fw.Username1 IS NOT NULL THEN 1 ELSE 0 END) AS is_friend, ");
+          sql.append("       MAX(CASE WHEN fr_out.Sender_Username IS NOT NULL AND fr_out.Status = 'Pending' THEN 1 ELSE 0 END) AS request_sent, ");
+          sql.append("       MAX(CASE WHEN fr_in.Sender_Username  IS NOT NULL AND fr_in.Status  = 'Pending' THEN 1 ELSE 0 END) AS request_received ");
           sql.append("FROM Users u ");
           sql.append("JOIN Users me ON me.Username = ? ");
           sql.append("LEFT JOIN Enrolls e2 ON e2.Username = u.Username ");
@@ -341,7 +484,18 @@
           sql.append("  AND e1.Subject_Abbr = e2.Subject_Abbr ");
           sql.append("  AND e1.Course_No = e2.Course_No ");
           sql.append("  AND e1.Section = e2.Section ");
+          sql.append("LEFT JOIN Friends_With fw ");
+          sql.append("  ON (fw.Username1 = ? AND fw.Username2 = u.Username) ");
+          sql.append("  OR (fw.Username2 = ? AND fw.Username1 = u.Username) ");
+          sql.append("LEFT JOIN Friend_Request fr_out ");
+          sql.append("  ON fr_out.Sender_Username = ? AND fr_out.Receiver_Username = u.Username ");
+          sql.append("LEFT JOIN Friend_Request fr_in ");
+          sql.append("  ON fr_in.Sender_Username = u.Username AND fr_in.Receiver_Username = ? ");
           sql.append("WHERE u.Username <> ? ");
+          params.add(username);
+          params.add(username);
+          params.add(username);
+          params.add(username);
           params.add(username);
           params.add(username);
 
@@ -399,6 +553,7 @@
             <th>Year</th>
             <th>Shared Classes</th>
             <th>Suggestion Score</th>
+            <th>Connection</th>
           </tr>
         </thead>
         <tbody>
@@ -406,18 +561,44 @@
             boolean hasRows = false;
             while (rs.next()) {
               hasRows = true;
+              String rowUser   = rs.getString("Username");
+              boolean isFriend = rs.getInt("is_friend") == 1;
+              boolean reqSent  = rs.getInt("request_sent") == 1;
+              boolean reqRecv  = rs.getInt("request_received") == 1;
           %>
             <tr>
               <td><strong><%= rs.getString("Name") %></strong></td>
-              <td>@<%= rs.getString("Username") %></td>
+              <td>@<%= rowUser %></td>
               <td><%= rs.getString("Major") != null ? rs.getString("Major") : "—" %></td>
               <td><%= rs.getObject("Year") != null ? rs.getInt("Year") : "—" %></td>
               <td><span class="badge"><%= rs.getInt("shared_classes") %></span></td>
               <td><%= rs.getInt("suggestion_score") %></td>
+              <td>
+                <% if (isFriend) { %>
+                  <span class="badge badge-friend">Friends</span>
+                <% } else if (reqSent) { %>
+                  <span class="badge badge-pending">Request Sent</span>
+                <% } else if (reqRecv) { %>
+                  <span class="badge badge-incoming">Awaiting Your Response</span>
+                <% } else { %>
+                  <form method="POST" action="people.jsp" style="display:inline;">
+                    <input type="hidden" name="action"   value="send_friend_request" />
+                    <input type="hidden" name="receiver" value="<%= rowUser %>" />
+                    <input type="hidden" name="q"           value="<%= searchText %>" />
+                    <input type="hidden" name="major"       value="<%= majorFilter %>" />
+                    <input type="hidden" name="year"        value="<%= yearFilter %>" />
+                    <input type="hidden" name="classFilter" value="<%= classFilter %>" />
+                    <% if (onlySharedClass) { %>
+                      <input type="hidden" name="onlySharedClass" value="1" />
+                    <% } %>
+                    <button type="submit" class="add-btn">+ Add Friend</button>
+                  </form>
+                <% } %>
+              </td>
             </tr>
           <% } %>
           <% if (!hasRows) { %>
-            <tr><td colspan="6" class="no-data">No users match the current search/filter settings.</td></tr>
+            <tr><td colspan="7" class="no-data">No users match the current search/filter settings.</td></tr>
           <% } %>
         </tbody>
       </table>
