@@ -318,6 +318,20 @@
     }
 
     .btn-unfriend:hover { background: #fee2e2; }
+
+    .btn-view {
+      padding: 6px 12px;
+      border: 1px solid #c7d2fe;
+      background: #eef2ff;
+      color: #1e40af;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-view:hover { background: #e0e7ff; }
   </style>
 </head>
 <body>
@@ -479,12 +493,15 @@
               <td><%= rs.getObject("Year") != null ? rs.getInt("Year") : "—" %></td>
               <td><span class="badge">Accepted</span></td>
               <td>
-                <form method="POST" action="friends.jsp" style="display:inline;"
-                      onsubmit="return confirm('Unfriend @<%= friendUser %>?');">
-                  <input type="hidden" name="action" value="unfriend" />
-                  <input type="hidden" name="friend" value="<%= friendUser %>" />
-                  <button type="submit" class="btn-unfriend">Unfriend</button>
-                </form>
+                <div class="row-actions">
+                  <a class="btn-view" href="friend_schedule.jsp?u=<%= friendUser %>">View Schedule</a>
+                  <form method="POST" action="friends.jsp" style="display:inline;"
+                        onsubmit="return confirm('Unfriend @<%= friendUser %>?');">
+                    <input type="hidden" name="action" value="unfriend" />
+                    <input type="hidden" name="friend" value="<%= friendUser %>" />
+                    <button type="submit" class="btn-unfriend">Unfriend</button>
+                  </form>
+                </div>
               </td>
             </tr>
           <% } %>
