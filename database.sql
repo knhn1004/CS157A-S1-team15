@@ -19,6 +19,7 @@ CREATE TABLE Users (
 CREATE TABLE TimeBlock (
     Block_ID VARCHAR(50) PRIMARY KEY,
     Name VARCHAR(100) NOT NULL,
+    Time TIME,
     Description VARCHAR(200),
     Date_Recurring VARCHAR(50),
     Created_Username VARCHAR(50),
