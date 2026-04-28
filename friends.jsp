@@ -145,6 +145,7 @@
     <span class="brand">&#128218; SpartanStudyCircle</span>
     <div class="nav-links">
       <a href="home.jsp">Home</a>
+      <a href="schedule.jsp">My Schedule</a>
       <a href="create_session.jsp">+ Create Session</a>
       <a href="people.jsp">Find People</a>
       <a href="friends.jsp" class="active">Friends</a>

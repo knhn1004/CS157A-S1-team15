@@ -24,17 +24,17 @@ INSERT INTO Users (Username, Email, Name, Password_Hash, Major, Year, School_nam
 ('student9', 'student9@sjsu.edu', 'Student9', 'hash009', 'Software Engineering', 3, 'SJSU'),
 ('student10', 'student10@sjsu.edu', 'Student10', 'hash010', 'Computer Science', 1, 'SJSU');
 
-INSERT INTO TimeBlock (Block_ID, Name, Description, Date_Recurring, Created_Username) VALUES
-('TB001', 'Morning Study', 'Early morning study block', 'Monday', 'sarah01'),
-('TB002', 'Afternoon Review', 'Afternoon review session', 'Tuesday', 'oliver02'),
-('TB003', 'Evening Practice', 'Evening coding practice', 'Wednesday', 'karan03'),
-('TB004', 'Weekend Grind', 'Weekend long study block', 'Saturday', 'mikewu04'),
-('TB005', 'Lunch Break Study', 'Quick study during lunch', 'Thursday', 'student5'),
-('TB006', 'Night Owl', 'Late night study block', 'Friday', 'student6'),
-('TB007', 'Lab Prep', 'Prepare for lab sessions', 'Monday', 'student7'),
-('TB008', 'Exam Review', 'Review before exams', 'Wednesday', 'student8'),
-('TB009', 'Group Work', 'Group project time', 'Tuesday', 'student9'),
-('TB010', 'Office Hours', 'Visit office hours', 'Thursday', 'student10');
+INSERT INTO TimeBlock (Block_ID, Name, Time, Description, Date_Recurring, Created_Username) VALUES
+('TB001', 'Morning Study', '08:00', 'Early morning study block', 'Monday', 'sarah01'),
+('TB002', 'Afternoon Review', '14:30', 'Afternoon review session', 'Tuesday', 'oliver02'),
+('TB003', 'Evening Practice', '18:00', 'Evening coding practice', 'Wednesday', 'karan03'),
+('TB004', 'Weekend Grind', '10:00', 'Weekend long study block', 'Saturday', 'mikewu04'),
+('TB005', 'Lunch Break Study', '12:15', 'Quick study during lunch', 'Thursday', 'student5'),
+('TB006', 'Night Owl', '21:00', 'Late night study block', 'Friday', 'student6'),
+('TB007', 'Lab Prep', '09:30', 'Prepare for lab sessions', 'Monday', 'student7'),
+('TB008', 'Exam Review', '17:00', 'Review before exams', 'Wednesday', 'student8'),
+('TB009', 'Group Work', '16:00', 'Group project time', 'Tuesday', 'student9'),
+('TB010', 'Office Hours', '11:00', 'Visit office hours', 'Thursday', 'student10');
 
 
 INSERT INTO StudySession (Session_ID, Name, Time, Date, Location, Description, Capacity, Topic, Visibility, Organizer_Username) VALUES

@@ -20,6 +20,59 @@
   final String DB_URL  = "jdbc:mysql://localhost:3306/Team_15?autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true";
   final String DB_USER = "root";
   final String DB_PASS = "password";
+
+  if ("POST".equalsIgnoreCase(request.getMethod()) && "delete_session".equals(request.getParameter("action"))) {
+    String sessionId = request.getParameter("sessionId") != null ? request.getParameter("sessionId").trim() : "";
+    if (!sessionId.isEmpty()) {
+      Connection deleteCon = null;
+      PreparedStatement ps = null;
+      try {
+        Class.forName("com.mysql.cj.jdbc.Driver");
+        deleteCon = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+        deleteCon.setAutoCommit(false);
+
+        ps = deleteCon.prepareStatement(
+          "DELETE FROM Invited_To WHERE Session_ID = ?"
+        );
+        ps.setString(1, sessionId);
+        ps.executeUpdate();
+        ps.close();
+
+        ps = deleteCon.prepareStatement(
+          "DELETE FROM Attends WHERE Session_ID = ?"
+        );
+        ps.setString(1, sessionId);
+        ps.executeUpdate();
+        ps.close();
+
+        ps = deleteCon.prepareStatement(
+          "DELETE FROM StudySession WHERE Session_ID = ? AND Organizer_Username = ?"
+        );
+        ps.setString(1, sessionId);
+        ps.setString(2, username);
+        int deleted = ps.executeUpdate();
+        ps.close();
+
+        if (deleted == 1) {
+          deleteCon.commit();
+          response.sendRedirect("home.jsp?deleted=1");
+          return;
+        }
+
+        deleteCon.rollback();
+      } catch (Exception ignore) {
+        if (deleteCon != null) try { deleteCon.rollback(); } catch (Exception innerIgnore) {}
+      } finally {
+        if (ps != null) try { ps.close(); } catch (Exception ignore) {}
+        if (deleteCon != null) {
+          try {
+            deleteCon.setAutoCommit(true);
+            deleteCon.close();
+          } catch (Exception ignore) {}
+        }
+      }
+    }
+  }
 %>
 <!DOCTYPE html>
 <html lang="en">
@@ -153,12 +206,28 @@
 
     .profile-detail span:first-child { color: #6b7280; }
 
+    .quick-link {
+      display: block;
+      margin-top: 18px;
+      text-align: center;
+      text-decoration: none;
+      background: #0055A2;
+      color: white;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .quick-link:hover { background: #004490; }
+
     /* ── Sessions Panel ── */
     .panel {
       background: white;
       border-radius: 12px;
       padding: 24px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      margin-bottom: 20px;
     }
 
     .panel h3 {
@@ -216,6 +285,28 @@
 
     .table-link:hover { text-decoration: underline; }
 
+    .action-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .inline-form { margin: 0; }
+
+    .btn-danger {
+      border: none;
+      background: #fee2e2;
+      color: #991b1b;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-danger:hover { background: #fecaca; }
+
     .muted {
       color: #9ca3af;
       font-size: 13px;
@@ -245,6 +336,7 @@
     <span class="brand">&#128218; SpartanStudyCircle</span>
     <div class="nav-links">
       <a href="home.jsp" class="active">Home</a>
+      <a href="schedule.jsp">My Schedule</a>
       <a href="create_session.jsp">+ Create Session</a>
       <a href="people.jsp">Find People</a>
       <a href="friends.jsp">Friends</a>
@@ -294,6 +386,7 @@
         <div class="profile-detail"><span>Major</span>  <span><%= major   %></span></div>
         <div class="profile-detail"><span>Year</span>   <span><%= yearStr %></span></div>
         <div class="profile-detail"><span>School</span> <span><%= school  %></span></div>
+        <a class="quick-link" href="schedule.jsp">Manage My Schedule</a>
       <% } %>
     </aside>
 
@@ -303,6 +396,93 @@
         <% if ("1".equals(request.getParameter("created"))) { %>
           <div class="banner-success">&#10003; Study session created successfully!</div>
         <% } %>
+        <% if ("1".equals(request.getParameter("updated"))) { %>
+          <div class="banner-success">&#10003; Study session updated successfully!</div>
+        <% } %>
+        <% if ("1".equals(request.getParameter("deleted"))) { %>
+          <div class="banner-success">&#10003; Study session deleted successfully!</div>
+        <% } %>
+        <h3>My Study Sessions</h3>
+
+        <%
+          String mySessionsError = "";
+          ResultSet mySessions = null;
+          PreparedStatement myPs = null;
+          Connection myCon = null;
+          try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            myCon = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+            myPs = myCon.prepareStatement(
+              "SELECT Session_ID, Name, Date, Time, Location, Topic, Capacity, Visibility " +
+              "FROM StudySession WHERE Organizer_Username = ? " +
+              "ORDER BY Date ASC, Time ASC, Name ASC"
+            );
+            myPs.setString(1, username);
+            mySessions = myPs.executeQuery();
+        %>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Session</th>
+              <th>Topic</th>
+              <th>Date</th>
+              <th>Time</th>
+              <th>Location</th>
+              <th>Visibility</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%
+              boolean hasMyRows = false;
+              while (mySessions.next()) {
+                hasMyRows = true;
+                String vis = mySessions.getString("Visibility");
+                String badgeClass = "badge-public";
+                if      ("Private".equals(vis)) badgeClass = "badge-private";
+                else if ("Friends".equals(vis)) badgeClass = "badge-friends";
+            %>
+              <tr>
+                <td><strong><%= mySessions.getString("Name") %></strong></td>
+                <td><%= mySessions.getString("Topic") != null ? mySessions.getString("Topic") : "—" %></td>
+                <td><%= mySessions.getDate("Date") != null ? mySessions.getDate("Date") : "—" %></td>
+                <td><%= mySessions.getTime("Time") != null ? mySessions.getTime("Time").toString().substring(0, 5) : "—" %></td>
+                <td><%= mySessions.getString("Location") != null ? mySessions.getString("Location") : "—" %></td>
+                <td><span class="badge <%= badgeClass %>"><%= vis %></span></td>
+                <td>
+                  <div class="action-row">
+                    <a class="table-link" href="edit_session.jsp?sessionId=<%= mySessions.getString("Session_ID") %>">Edit</a>
+                    <a class="table-link" href="session_attendees.jsp?sessionId=<%= mySessions.getString("Session_ID") %>">Attendees</a>
+                    <form class="inline-form" method="POST" action="home.jsp">
+                      <input type="hidden" name="action" value="delete_session" />
+                      <input type="hidden" name="sessionId" value="<%= mySessions.getString("Session_ID") %>" />
+                      <button class="btn-danger" type="submit">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            <% } %>
+            <% if (!hasMyRows) { %>
+              <tr><td colspan="7" class="no-data">You have not created any study sessions yet.</td></tr>
+            <% } %>
+          </tbody>
+        </table>
+
+        <%
+            mySessions.close();
+            myPs.close();
+            myCon.close();
+          } catch (Exception e) {
+            mySessionsError = e.getMessage();
+          }
+          if (!mySessionsError.isEmpty()) {
+        %>
+          <p class="error-msg">Database error: <%= mySessionsError %></p>
+        <% } %>
+      </div>
+
+      <div class="panel">
         <h3>Public Study Sessions</h3>
 
         <%
