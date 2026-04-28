@@ -21,7 +21,50 @@
     String sender = request.getParameter("sender");
     if (sender != null) sender = sender.trim();
 
-    if (("accept_request".equals(action) || "decline_request".equals(action))
+    if ("unfriend".equals(action)) {
+      String target = request.getParameter("friend");
+      if (target != null) target = target.trim();
+
+      if (target == null || target.isEmpty()) {
+        actionKind = "error"; actionMsg = "Missing friend.";
+      } else if (target.equals(username)) {
+        actionKind = "error"; actionMsg = "You cannot unfriend yourself.";
+      } else {
+        Connection actCon = null;
+        try {
+          Class.forName("com.mysql.cj.jdbc.Driver");
+          actCon = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+          actCon.setAutoCommit(false);
+
+          PreparedStatement del = actCon.prepareStatement(
+            "DELETE FROM Friends_With " +
+            " WHERE (Username1 = ? AND Username2 = ?) " +
+            "    OR (Username1 = ? AND Username2 = ?)"
+          );
+          del.setString(1, username);
+          del.setString(2, target);
+          del.setString(3, target);
+          del.setString(4, username);
+          int affected = del.executeUpdate();
+          del.close();
+          actCon.commit();
+
+          if (affected == 0) {
+            actionKind = "error";
+            actionMsg  = "You are not friends with @" + target + ".";
+          } else {
+            actionKind = "success";
+            actionMsg  = "Unfriended @" + target + ".";
+          }
+        } catch (Exception e) {
+          if (actCon != null) try { actCon.rollback(); } catch (Exception ignore) {}
+          actionKind = "error";
+          actionMsg  = "Database error: " + e.getMessage();
+        } finally {
+          if (actCon != null) try { actCon.close(); } catch (Exception ignore) {}
+        }
+      }
+    } else if (("accept_request".equals(action) || "decline_request".equals(action))
         && sender != null && !sender.isEmpty() && !sender.equals(username)) {
 
       Connection actCon = null;
@@ -262,6 +305,19 @@
 
     .btn-decline { background: #e5e7eb; color: #111827; }
     .btn-decline:hover { background: #d1d5db; }
+
+    .btn-unfriend {
+      padding: 6px 12px;
+      border: 1px solid #fecaca;
+      background: #fff;
+      color: #b91c1c;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-unfriend:hover { background: #fee2e2; }
   </style>
 </head>
 <body>
@@ -406,6 +462,7 @@
             <th>Major</th>
             <th>Year</th>
             <th>Connection</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -413,17 +470,26 @@
             boolean hasRows = false;
             while (rs.next()) {
               hasRows = true;
+              String friendUser = rs.getString("Username");
           %>
             <tr>
               <td><strong><%= rs.getString("Name") %></strong></td>
-              <td>@<%= rs.getString("Username") %></td>
+              <td>@<%= friendUser %></td>
               <td><%= rs.getString("Major") != null ? rs.getString("Major") : "—" %></td>
               <td><%= rs.getObject("Year") != null ? rs.getInt("Year") : "—" %></td>
               <td><span class="badge">Accepted</span></td>
+              <td>
+                <form method="POST" action="friends.jsp" style="display:inline;"
+                      onsubmit="return confirm('Unfriend @<%= friendUser %>?');">
+                  <input type="hidden" name="action" value="unfriend" />
+                  <input type="hidden" name="friend" value="<%= friendUser %>" />
+                  <button type="submit" class="btn-unfriend">Unfriend</button>
+                </form>
+              </td>
             </tr>
           <% } %>
           <% if (!hasRows) { %>
-            <tr><td colspan="5" class="no-data">You do not have any friends yet.</td></tr>
+            <tr><td colspan="6" class="no-data">You do not have any friends yet.</td></tr>
           <% } %>
         </tbody>
       </table>
