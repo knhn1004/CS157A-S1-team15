@@ -1,5 +1,49 @@
-<%@ page import="java.sql.*" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
+<%@ page import="java.sql.*, java.net.URLEncoder" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ page session="true" %>
+<%!
+  private String h(String s) {
+    if (s == null) return "";
+    StringBuilder sb = new StringBuilder(s.length());
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      switch (c) {
+        case '&':  sb.append("&amp;");  break;
+        case '<':  sb.append("&lt;");   break;
+        case '>':  sb.append("&gt;");   break;
+        case '"':  sb.append("&quot;"); break;
+        case '\'': sb.append("&#39;");  break;
+        default:   sb.append(c);
+      }
+    }
+    return sb.toString();
+  }
+
+  private String urlEnc(String s) {
+    if (s == null) return "";
+    try { return URLEncoder.encode(s, "UTF-8"); }
+    catch (Exception e) { return ""; }
+  }
+
+  private String jsString(String s) {
+    if (s == null) return "";
+    StringBuilder sb = new StringBuilder(s.length());
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      switch (c) {
+        case '\\': sb.append("\\\\"); break;
+        case '\'': sb.append("\\'");  break;
+        case '"':  sb.append("\\\""); break;
+        case '<':  sb.append("\\u003c"); break;
+        case '>':  sb.append("\\u003e"); break;
+        case '&':  sb.append("\\u0026"); break;
+        case '\n': sb.append("\\n"); break;
+        case '\r': sb.append("\\r"); break;
+        default:   sb.append(c);
+      }
+    }
+    return sb.toString();
+  }
+%>
 <%
   String username = (String) session.getAttribute("username");
   String name = (String) session.getAttribute("name");
@@ -36,17 +80,18 @@
           actCon = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
           actCon.setAutoCommit(false);
 
-          PreparedStatement del = actCon.prepareStatement(
+          int affected;
+          try (PreparedStatement del = actCon.prepareStatement(
             "DELETE FROM Friends_With " +
             " WHERE (Username1 = ? AND Username2 = ?) " +
             "    OR (Username1 = ? AND Username2 = ?)"
-          );
-          del.setString(1, username);
-          del.setString(2, target);
-          del.setString(3, target);
-          del.setString(4, username);
-          int affected = del.executeUpdate();
-          del.close();
+          )) {
+            del.setString(1, username);
+            del.setString(2, target);
+            del.setString(3, target);
+            del.setString(4, username);
+            affected = del.executeUpdate();
+          }
           actCon.commit();
 
           if (affected == 0) {
@@ -73,17 +118,19 @@
         actCon = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
         actCon.setAutoCommit(false);
 
-        PreparedStatement ck = actCon.prepareStatement(
+        boolean hasRow;
+        boolean isPending;
+        try (PreparedStatement ck = actCon.prepareStatement(
           "SELECT Status FROM Friend_Request " +
           " WHERE Sender_Username = ? AND Receiver_Username = ?"
-        );
-        ck.setString(1, sender);
-        ck.setString(2, username);
-        ResultSet ckRs = ck.executeQuery();
-
-        boolean hasRow      = ckRs.next();
-        boolean isPending   = hasRow && "Pending".equalsIgnoreCase(ckRs.getString("Status"));
-        ckRs.close(); ck.close();
+        )) {
+          ck.setString(1, sender);
+          ck.setString(2, username);
+          try (ResultSet ckRs = ck.executeQuery()) {
+            hasRow    = ckRs.next();
+            isPending = hasRow && "Pending".equalsIgnoreCase(ckRs.getString("Status"));
+          }
+        }
 
         if (!hasRow) {
           actionKind = "error";
@@ -92,37 +139,37 @@
           actionKind = "error";
           actionMsg  = "That friend request is no longer pending.";
         } else if ("accept_request".equals(action)) {
-          PreparedStatement upd = actCon.prepareStatement(
+          try (PreparedStatement upd = actCon.prepareStatement(
             "UPDATE Friend_Request SET Status = 'Accepted' " +
             " WHERE Sender_Username = ? AND Receiver_Username = ?"
-          );
-          upd.setString(1, sender);
-          upd.setString(2, username);
-          upd.executeUpdate();
-          upd.close();
+          )) {
+            upd.setString(1, sender);
+            upd.setString(2, username);
+            upd.executeUpdate();
+          }
 
-          PreparedStatement ins = actCon.prepareStatement(
+          try (PreparedStatement ins = actCon.prepareStatement(
             "INSERT INTO Friends_With (Username1, Username2, Status) " +
             "VALUES (?, ?, 'Accepted') " +
             "ON DUPLICATE KEY UPDATE Status = 'Accepted'"
-          );
-          ins.setString(1, sender);
-          ins.setString(2, username);
-          ins.executeUpdate();
-          ins.close();
+          )) {
+            ins.setString(1, sender);
+            ins.setString(2, username);
+            ins.executeUpdate();
+          }
 
           actCon.commit();
           actionKind = "success";
           actionMsg  = "You are now friends with @" + sender + ".";
         } else {
-          PreparedStatement upd = actCon.prepareStatement(
+          try (PreparedStatement upd = actCon.prepareStatement(
             "UPDATE Friend_Request SET Status = 'Declined' " +
             " WHERE Sender_Username = ? AND Receiver_Username = ?"
-          );
-          upd.setString(1, sender);
-          upd.setString(2, username);
-          upd.executeUpdate();
-          upd.close();
+          )) {
+            upd.setString(1, sender);
+            upd.setString(2, username);
+            upd.executeUpdate();
+          }
           actCon.commit();
           actionKind = "success";
           actionMsg  = "Declined friend request from @" + sender + ".";
@@ -354,9 +401,9 @@
 
   <div class="container">
     <% if (!actionMsg.isEmpty() && "success".equals(actionKind)) { %>
-      <div class="banner-success">&#10003; <%= actionMsg %></div>
+      <div class="banner-success">&#10003; <%= h(actionMsg) %></div>
     <% } else if (!actionMsg.isEmpty()) { %>
-      <div class="banner-error"><%= actionMsg %></div>
+      <div class="banner-error"><%= h(actionMsg) %></div>
     <% } %>
 
     <div class="card">
@@ -401,21 +448,21 @@
               String prSender = prRs.getString("Username");
           %>
             <tr>
-              <td><strong><%= prRs.getString("Name") %></strong></td>
-              <td>@<%= prSender %></td>
-              <td><%= prRs.getString("Major") != null ? prRs.getString("Major") : "—" %></td>
+              <td><strong><%= h(prRs.getString("Name")) %></strong></td>
+              <td>@<%= h(prSender) %></td>
+              <td><%= prRs.getString("Major") != null ? h(prRs.getString("Major")) : "—" %></td>
               <td><%= prRs.getObject("Year") != null ? prRs.getInt("Year") : "—" %></td>
-              <td><%= prRs.getString("Created_At") != null ? prRs.getString("Created_At") : "—" %></td>
+              <td><%= prRs.getString("Created_At") != null ? h(prRs.getString("Created_At")) : "—" %></td>
               <td>
                 <div class="row-actions">
                   <form method="POST" action="friends.jsp" style="display:inline;">
                     <input type="hidden" name="action" value="accept_request" />
-                    <input type="hidden" name="sender" value="<%= prSender %>" />
+                    <input type="hidden" name="sender" value="<%= h(prSender) %>" />
                     <button type="submit" class="btn-accept">Accept</button>
                   </form>
                   <form method="POST" action="friends.jsp" style="display:inline;">
                     <input type="hidden" name="action" value="decline_request" />
-                    <input type="hidden" name="sender" value="<%= prSender %>" />
+                    <input type="hidden" name="sender" value="<%= h(prSender) %>" />
                     <button type="submit" class="btn-decline">Decline</button>
                   </form>
                 </div>
@@ -439,7 +486,7 @@
       %>
 
       <% if (!pendingError.isEmpty()) { %>
-        <p class="error-msg"><%= pendingError %></p>
+        <p class="error-msg"><%= h(pendingError) %></p>
       <% } %>
     </div>
 
@@ -494,11 +541,11 @@
               <td><span class="badge">Accepted</span></td>
               <td>
                 <div class="row-actions">
-                  <a class="btn-view" href="friend_schedule.jsp?u=<%= friendUser %>">View Schedule</a>
+                  <a class="btn-view" href="friend_schedule.jsp?u=<%= h(urlEnc(friendUser)) %>">View Schedule</a>
                   <form method="POST" action="friends.jsp" style="display:inline;"
-                        onsubmit="return confirm('Unfriend @<%= friendUser %>?');">
+                        onsubmit="return confirm('Unfriend @<%= jsString(friendUser) %>?');">
                     <input type="hidden" name="action" value="unfriend" />
-                    <input type="hidden" name="friend" value="<%= friendUser %>" />
+                    <input type="hidden" name="friend" value="<%= h(friendUser) %>" />
                     <button type="submit" class="btn-unfriend">Unfriend</button>
                   </form>
                 </div>

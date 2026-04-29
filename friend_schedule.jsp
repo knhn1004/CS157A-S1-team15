@@ -1,5 +1,23 @@
 <%@ page import="java.sql.*" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ page session="true" %>
+<%!
+  private String h(String s) {
+    if (s == null) return "";
+    StringBuilder sb = new StringBuilder(s.length());
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      switch (c) {
+        case '&':  sb.append("&amp;");  break;
+        case '<':  sb.append("&lt;");   break;
+        case '>':  sb.append("&gt;");   break;
+        case '"':  sb.append("&quot;"); break;
+        case '\'': sb.append("&#39;");  break;
+        default:   sb.append(c);
+      }
+    }
+    return sb.toString();
+  }
+%>
 <%
   String username = (String) session.getAttribute("username");
   String name     = (String) session.getAttribute("name");
@@ -213,7 +231,7 @@
       %>
 
       <% if (!accessError.isEmpty()) { %>
-        <p class="error-msg"><%= accessError %></p>
+        <p class="error-msg"><%= h(accessError) %></p>
       <% } else { %>
         <%
           Connection con = null;
@@ -265,16 +283,16 @@
         %>
 
         <% if (!accessError.isEmpty()) { %>
-          <p class="error-msg"><%= accessError %></p>
+          <p class="error-msg"><%= h(accessError) %></p>
         <% } else { %>
           <p class="subtitle">
-            <strong><%= friendName %></strong> &nbsp;·&nbsp; @<%= friendUser %>
+            <strong><%= h(friendName) %></strong> &nbsp;·&nbsp; @<%= h(friendUser) %>
           </p>
 
           <div class="grid">
-            <div class="field"><span class="label">Major</span><%= friendMajor %></div>
-            <div class="field"><span class="label">Year</span><%= friendYear %></div>
-            <div class="field"><span class="label">School</span><%= friendSchool %></div>
+            <div class="field"><span class="label">Major</span><%= h(friendMajor) %></div>
+            <div class="field"><span class="label">Year</span><%= h(friendYear) %></div>
+            <div class="field"><span class="label">School</span><%= h(friendSchool) %></div>
           </div>
 
           <div class="panel-title">Classes</div>
@@ -309,10 +327,10 @@
                   hasClasses = true;
               %>
                 <tr>
-                  <td><strong><%= classRs.getString("Subject_Abbr") %> <%= classRs.getString("Course_No") %>-<%= classRs.getString("Section") %></strong></td>
-                  <td><%= classRs.getString("Class_Name") != null ? classRs.getString("Class_Name") : "—" %></td>
-                  <td><%= classRs.getString("Days") != null ? classRs.getString("Days") : "—" %></td>
-                  <td><%= classRs.getString("Time") != null ? classRs.getString("Time") : "—" %></td>
+                  <td><strong><%= h(classRs.getString("Subject_Abbr")) %> <%= h(classRs.getString("Course_No")) %>-<%= h(classRs.getString("Section")) %></strong></td>
+                  <td><%= classRs.getString("Class_Name") != null ? h(classRs.getString("Class_Name")) : "—" %></td>
+                  <td><%= classRs.getString("Days") != null ? h(classRs.getString("Days")) : "—" %></td>
+                  <td><%= classRs.getString("Time") != null ? h(classRs.getString("Time")) : "—" %></td>
                 </tr>
               <% } %>
               <% if (!hasClasses) { %>
@@ -350,9 +368,9 @@
                   hasBlocks = true;
               %>
                 <tr>
-                  <td><strong><%= blockRs.getString("Name") != null ? blockRs.getString("Name") : "—" %></strong></td>
-                  <td><%= blockRs.getString("Description") != null ? blockRs.getString("Description") : "—" %></td>
-                  <td><%= blockRs.getString("Date_Recurring") != null ? blockRs.getString("Date_Recurring") : "—" %></td>
+                  <td><strong><%= blockRs.getString("Name") != null ? h(blockRs.getString("Name")) : "—" %></strong></td>
+                  <td><%= blockRs.getString("Description") != null ? h(blockRs.getString("Description")) : "—" %></td>
+                  <td><%= blockRs.getString("Date_Recurring") != null ? h(blockRs.getString("Date_Recurring")) : "—" %></td>
                 </tr>
               <% } %>
               <% if (!hasBlocks) { %>
@@ -366,7 +384,7 @@
           } catch (Exception e) {
             accessError = "Database error: " + e.getMessage();
         %>
-          <p class="error-msg"><%= accessError %></p>
+          <p class="error-msg"><%= h(accessError) %></p>
         <%
           } finally {
             if (blockRs != null) try { blockRs.close(); } catch (Exception ignore) {}

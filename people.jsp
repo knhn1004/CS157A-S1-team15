@@ -1,7 +1,24 @@
 <%@ page import="java.sql.*, java.util.*" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ page session="true" %>
+<%!
+  private String h(String s) {
+    if (s == null) return "";
+    StringBuilder sb = new StringBuilder(s.length());
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      switch (c) {
+        case '&':  sb.append("&amp;");  break;
+        case '<':  sb.append("&lt;");   break;
+        case '>':  sb.append("&gt;");   break;
+        case '"':  sb.append("&quot;"); break;
+        case '\'': sb.append("&#39;");  break;
+        default:   sb.append(c);
+      }
+    }
+    return sb.toString();
+  }
+%>
 <%
-  // Session guard
   String username = (String) session.getAttribute("username");
   String name     = (String) session.getAttribute("name");
   if (username == null) {
@@ -367,9 +384,9 @@
 
   <div class="container">
     <% if (!actionMsg.isEmpty() && "success".equals(actionKind)) { %>
-      <div class="banner-success">&#10003; <%= actionMsg %></div>
+      <div class="banner-success">&#10003; <%= h(actionMsg) %></div>
     <% } else if (!actionMsg.isEmpty()) { %>
-      <div class="banner-error"><%= actionMsg %></div>
+      <div class="banner-error"><%= h(actionMsg) %></div>
     <% } %>
 
     <div class="card">
@@ -583,11 +600,11 @@
                 <% } else { %>
                   <form method="POST" action="people.jsp" style="display:inline;">
                     <input type="hidden" name="action"   value="send_friend_request" />
-                    <input type="hidden" name="receiver" value="<%= rowUser %>" />
-                    <input type="hidden" name="q"           value="<%= searchText %>" />
-                    <input type="hidden" name="major"       value="<%= majorFilter %>" />
-                    <input type="hidden" name="year"        value="<%= yearFilter %>" />
-                    <input type="hidden" name="classFilter" value="<%= classFilter %>" />
+                    <input type="hidden" name="receiver" value="<%= h(rowUser) %>" />
+                    <input type="hidden" name="q"           value="<%= h(searchText) %>" />
+                    <input type="hidden" name="major"       value="<%= h(majorFilter) %>" />
+                    <input type="hidden" name="year"        value="<%= h(yearFilter) %>" />
+                    <input type="hidden" name="classFilter" value="<%= h(classFilter) %>" />
                     <% if (onlySharedClass) { %>
                       <input type="hidden" name="onlySharedClass" value="1" />
                     <% } %>
