@@ -186,6 +186,8 @@
     <div class="nav-links">
       <a href="home.jsp">Home</a>
       <a href="create_session.jsp">+ Create Session</a>
+      <a href="browse_sessions.jsp">Browse Sessions</a>
+      <a href="my_sessions.jsp" class="active">My Sessions</a>
       <a href="people.jsp">Find People</a>
       <a href="friends.jsp">Friends</a>
       <a href="profile.jsp">My Profile</a>
