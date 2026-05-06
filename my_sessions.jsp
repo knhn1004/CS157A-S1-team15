@@ -1,5 +1,23 @@
 <%@ page import="java.sql.*" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ page session="true" %>
+<%!
+  private String h(String s) {
+    if (s == null) return "";
+    StringBuilder sb = new StringBuilder(s.length());
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      switch (c) {
+        case '&':  sb.append("&amp;");  break;
+        case '<':  sb.append("&lt;");   break;
+        case '>':  sb.append("&gt;");   break;
+        case '"':  sb.append("&quot;"); break;
+        case '\'': sb.append("&#39;");  break;
+        default:   sb.append(c);
+      }
+    }
+    return sb.toString();
+  }
+%>
 <%
   String username = (String) session.getAttribute("username");
   String name     = (String) session.getAttribute("name");
@@ -12,12 +30,12 @@
   final String DB_USER = "root";
   final String DB_PASS = "password";
 
-  // Handle join/leave actions
-  String actionParam = request.getParameter("action");
+  String actionParam    = request.getParameter("action");
   String actionSessionId = request.getParameter("sessionId");
-  String actionMsg = "";
-  String actionMsgType = "success";
+  String actionMsg      = "";
+  String actionMsgType  = "success";
 
+  // ── LEAVE ─────────────────────────────────────────────────────────────────
   if ("leave".equals(actionParam) && actionSessionId != null && !actionSessionId.trim().isEmpty()) {
     try {
       Class.forName("com.mysql.cj.jdbc.Driver");
@@ -30,16 +48,116 @@
       int rows = leavePs.executeUpdate();
       leavePs.close();
       leaveCon.close();
-      if (rows > 0) {
-        actionMsg = "You have left the session.";
-      } else {
-        actionMsg = "You were not registered for that session.";
-        actionMsgType = "error";
-      }
+      actionMsg     = rows > 0 ? "You have left the session." : "You were not registered for that session.";
+      actionMsgType = rows > 0 ? "success" : "error";
     } catch (Exception e) {
-      actionMsg = "Error leaving session: " + e.getMessage();
+      actionMsg = "Error leaving session: " + h(e.getMessage());
       actionMsgType = "error";
     }
+
+  // ── ACCEPT INVITE ─────────────────────────────────────────────────────────
+  } else if ("accept_invite".equals(actionParam) && actionSessionId != null && !actionSessionId.trim().isEmpty()) {
+    String sid = actionSessionId.trim();
+    Connection actCon = null;
+    try {
+      Class.forName("com.mysql.cj.jdbc.Driver");
+      actCon = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+      actCon.setAutoCommit(false);
+
+      // Verify invite exists
+      PreparedStatement ckPs = actCon.prepareStatement(
+        "SELECT Response FROM Invited_To WHERE Session_ID = ? AND Invitee = ?"
+      );
+      ckPs.setString(1, sid); ckPs.setString(2, username);
+      ResultSet ckRs = ckPs.executeQuery();
+      if (!ckRs.next()) {
+        actionMsg = "Invitation not found."; actionMsgType = "error";
+        actCon.rollback();
+      } else {
+        String curResp = ckRs.getString("Response");
+        ckRs.close(); ckPs.close();
+        if (curResp != null && !curResp.equalsIgnoreCase("Pending") && !curResp.isEmpty()) {
+          actionMsg = "This invitation has already been " + curResp.toLowerCase() + ".";
+          actionMsgType = "info";
+          actCon.rollback();
+        } else {
+          // Check capacity
+          PreparedStatement capPs = actCon.prepareStatement(
+            "SELECT ss.Capacity, (SELECT COUNT(*) FROM Attends WHERE Session_ID = ss.Session_ID) AS cur " +
+            "FROM StudySession ss WHERE ss.Session_ID = ?"
+          );
+          capPs.setString(1, sid);
+          ResultSet capRs = capPs.executeQuery();
+          boolean full = false;
+          if (capRs.next()) {
+            int cap = capRs.getInt("Capacity"); int cur = capRs.getInt("cur");
+            if (!capRs.wasNull() && cap > 0 && cur >= cap) full = true;
+          }
+          capRs.close(); capPs.close();
+
+          if (full) {
+            actCon.rollback();
+            actionMsg = "This session is full — you could not be added."; actionMsgType = "error";
+          } else {
+            // Update Invited_To
+            PreparedStatement updPs = actCon.prepareStatement(
+              "UPDATE Invited_To SET Response = 'Accepted' WHERE Session_ID = ? AND Invitee = ?"
+            );
+            updPs.setString(1, sid); updPs.setString(2, username);
+            updPs.executeUpdate(); updPs.close();
+
+            // Insert into Attends if not already there
+            PreparedStatement alPs = actCon.prepareStatement(
+              "SELECT 1 FROM Attends WHERE Session_ID = ? AND Username = ?"
+            );
+            alPs.setString(1, sid); alPs.setString(2, username);
+            ResultSet alRs = alPs.executeQuery();
+            boolean alreadyIn = alRs.next();
+            alRs.close(); alPs.close();
+
+            if (!alreadyIn) {
+              PreparedStatement insPs = actCon.prepareStatement(
+                "INSERT INTO Attends (Session_ID, Username, Status) VALUES (?, ?, 'Confirmed')"
+              );
+              insPs.setString(1, sid); insPs.setString(2, username);
+              insPs.executeUpdate(); insPs.close();
+            }
+            actCon.commit();
+            actionMsg = "&#10003; You have joined the session! It now appears in Upcoming &amp; Current.";
+            actionMsgType = "success";
+          }
+        }
+      }
+    } catch (Exception e) {
+      if (actCon != null) try { actCon.rollback(); } catch (Exception ignore) {}
+      actionMsg = "Error: " + h(e.getMessage()); actionMsgType = "error";
+    } finally {
+      if (actCon != null) try { actCon.setAutoCommit(true); actCon.close(); } catch (Exception ignore) {}
+    }
+
+  // ── DECLINE INVITE ────────────────────────────────────────────────────────
+  } else if ("decline_invite".equals(actionParam) && actionSessionId != null && !actionSessionId.trim().isEmpty()) {
+    String sid = actionSessionId.trim();
+    try {
+      Class.forName("com.mysql.cj.jdbc.Driver");
+      Connection dCon = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+      PreparedStatement dPs = dCon.prepareStatement(
+        "UPDATE Invited_To SET Response = 'Declined' WHERE Session_ID = ? AND Invitee = ?"
+      );
+      dPs.setString(1, sid); dPs.setString(2, username);
+      int rows = dPs.executeUpdate();
+      dPs.close(); dCon.close();
+      actionMsg = rows > 0 ? "Invitation declined." : "Invitation not found.";
+      actionMsgType = rows > 0 ? "info" : "error";
+    } catch (Exception e) {
+      actionMsg = "Error: " + h(e.getMessage()); actionMsgType = "error";
+    }
+  }
+
+  // Which tab to open (default to invitations tab if an invite action just ran)
+  String activeTab = request.getParameter("tab") != null ? request.getParameter("tab") : "upcoming";
+  if ("accept_invite".equals(actionParam) || "decline_invite".equals(actionParam)) {
+    activeTab = "invitations";
   }
 %>
 <!DOCTYPE html>
@@ -102,17 +220,8 @@
       margin-bottom: 22px;
     }
 
-    .page-header h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: #111827;
-    }
-
-    .page-header p {
-      font-size: 13px;
-      color: #6b7280;
-      margin-top: 3px;
-    }
+    .page-header h1 { font-size: 22px; font-weight: 700; color: #111827; }
+    .page-header p  { font-size: 13px; color: #6b7280; margin-top: 3px; }
 
     .btn-primary {
       display: inline-block;
@@ -139,8 +248,9 @@
 
     .alert-success { background: #dcfce7; color: #166534; }
     .alert-error   { background: #fee2e2; color: #991b1b; }
+    .alert-info    { background: #dbeafe; color: #1e40af; }
 
-    /* Tab switcher */
+    /* ── Tabs ── */
     .tabs {
       display: flex;
       gap: 0;
@@ -159,19 +269,32 @@
       margin-bottom: -2px;
       cursor: pointer;
       transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
-    .tab-btn.active {
-      color: #0055A2;
-      border-bottom-color: #0055A2;
-    }
+    .tab-btn.active { color: #0055A2; border-bottom-color: #0055A2; }
+    .tab-btn:hover  { color: #0055A2; }
 
-    .tab-btn:hover { color: #0055A2; }
+    .tab-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      background: #f59e0b;
+      color: white;
+      font-size: 10px;
+      font-weight: 800;
+      border-radius: 999px;
+    }
 
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
 
-    /* Session cards grid */
+    /* ── Session cards ── */
     .sessions-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -185,6 +308,8 @@
       box-shadow: 0 1px 4px rgba(0,0,0,0.07);
       border-left: 4px solid #0055A2;
       transition: box-shadow 0.2s, transform 0.2s;
+      display: flex;
+      flex-direction: column;
     }
 
     .session-card:hover {
@@ -192,16 +317,17 @@
       transform: translateY(-2px);
     }
 
-    .session-card.past {
-      border-left-color: #9ca3af;
-      opacity: 0.85;
-    }
+    .session-card.past      { border-left-color: #9ca3af; opacity: 0.85; }
+    .session-card.invite    { border-left-color: #d97706; }
+    .session-card.inv-accepted { border-left-color: #059669; opacity: 0.9; }
+    .session-card.inv-declined { border-left-color: #9ca3af; opacity: 0.7; }
 
-    .session-card .card-top {
+    .card-top {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
       margin-bottom: 10px;
+      gap: 8px;
     }
 
     .session-card h3 {
@@ -209,8 +335,10 @@
       font-weight: 700;
       color: #111827;
       flex: 1;
-      margin-right: 10px;
+      margin-right: 6px;
     }
+
+    .badges { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 
     .badge {
       display: inline-block;
@@ -226,10 +354,32 @@
     .badge-declined   { background: #fee2e2; color: #991b1b; }
     .badge-public     { background: #dcfce7; color: #166534; }
     .badge-friends    { background: #dbeafe; color: #1e40af; }
-    .badge-private    { background: #fee2e2; color: #991b1b; }
+    .badge-private    { background: #ede9fe; color: #5b21b6; }
     .badge-past       { background: #f3f4f6; color: #6b7280; }
     .badge-upcoming   { background: #eff6ff; color: #1e40af; }
     .badge-organizer  { background: #fef3c7; color: #92400e; }
+    .badge-inv-pending  { background: #fef3c7; color: #92400e; }
+    .badge-inv-accepted { background: #dcfce7; color: #166534; }
+    .badge-inv-declined { background: #f3f4f6; color: #6b7280; }
+
+    .tag-topic {
+      display: inline-block;
+      background: #eff6ff;
+      color: #1e40af;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+
+    .inviter-row {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 10px;
+    }
+
+    .inviter-row strong { color: #374151; }
 
     .meta-grid {
       display: grid;
@@ -247,28 +397,14 @@
     }
 
     .meta-item .icon { font-size: 13px; }
-
-    .meta-item strong {
-      color: #374151;
-      font-weight: 600;
-    }
-
-    .tag-topic {
-      display: inline-block;
-      background: #eff6ff;
-      color: #1e40af;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 6px;
-      margin-bottom: 12px;
-    }
+    .meta-item strong { color: #374151; font-weight: 600; }
 
     .description-text {
       font-size: 12px;
       color: #6b7280;
       line-height: 1.5;
       margin-bottom: 14px;
+      flex: 1;
       display: -webkit-box;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
@@ -281,61 +417,146 @@
       align-items: center;
       padding-top: 12px;
       border-top: 1px solid #f3f4f6;
+      margin-top: auto;
+      gap: 8px;
     }
 
-    .organizer-label {
-      font-size: 11px;
-      color: #9ca3af;
-    }
-
+    .organizer-label { font-size: 11px; color: #9ca3af; }
     .organizer-label strong { color: #6b7280; }
 
-    .btn-leave {
-      padding: 6px 12px;
-      background: #fff;
-      border: 1.5px solid #e5e7eb;
+    .btn-action {
+      padding: 6px 13px;
       border-radius: 6px;
       font-size: 12px;
-      font-weight: 600;
-      color: #6b7280;
+      font-weight: 700;
       cursor: pointer;
-      transition: all 0.15s;
       text-decoration: none;
+      border: none;
+      display: inline-block;
     }
 
-    .btn-leave:hover {
-      background: #fee2e2;
-      border-color: #fca5a5;
-      color: #991b1b;
+    .btn-leave {
+      background: #fff;
+      border: 1.5px solid #e5e7eb;
+      color: #6b7280;
+      transition: all 0.15s;
     }
+
+    .btn-leave:hover { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+
+    .btn-accept {
+      background: #059669;
+      color: white;
+      transition: background 0.15s;
+    }
+
+    .btn-accept:hover { background: #047857; }
+
+    .btn-decline-inv {
+      background: #fff;
+      border: 1.5px solid #e5e7eb;
+      color: #6b7280;
+      transition: all 0.15s;
+    }
+
+    .btn-decline-inv:hover { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
 
     .no-data {
       text-align: center;
-      padding: 48px 0;
+      padding: 52px 0;
       color: #9ca3af;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.07);
     }
 
     .no-data .no-data-icon { font-size: 40px; margin-bottom: 12px; }
-    .no-data p { font-size: 14px; }
+    .no-data p { font-size: 14px; line-height: 1.7; }
     .no-data a { color: #0055A2; font-weight: 600; text-decoration: none; }
     .no-data a:hover { text-decoration: underline; }
 
-    .section-summary {
-      font-size: 13px;
-      color: #6b7280;
-      margin-bottom: 16px;
-    }
-
+    .section-summary { font-size: 13px; color: #6b7280; margin-bottom: 16px; }
     .section-summary strong { color: #374151; }
 
-    .divider-label {
-      font-size: 12px;
-      font-weight: 700;
-      color: #9ca3af;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      margin: 24px 0 12px;
+    /* Invite sub-tabs */
+    .inv-subtabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1.5px solid #e5e7eb;
+      margin-bottom: 20px;
     }
+
+    .inv-stab {
+      padding: 7px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #6b7280;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+      cursor: pointer;
+    }
+
+    .inv-stab.active { color: #0055A2; border-bottom-color: #0055A2; }
+    .inv-stab:hover  { color: #0055A2; }
+
+    .inv-subpanel { display: none; }
+    .inv-subpanel.active { display: block; }
+
+    /* Decline confirm modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(17,24,39,0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 999;
+    }
+
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      width: 100%;
+      max-width: 400px;
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+
+    .modal h3 { font-size: 16px; font-weight: 700; color: #111827; margin-bottom: 8px; }
+    .modal p  { font-size: 13px; color: #6b7280; margin-bottom: 20px; }
+
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+    .btn-modal-cancel {
+      padding: 9px 18px;
+      border: 1.5px solid #e5e7eb;
+      background: white;
+      color: #374151;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-modal-cancel:hover { background: #f9fafb; }
+
+    .btn-modal-confirm {
+      padding: 9px 18px;
+      background: #ef4444;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .btn-modal-confirm:hover { background: #dc2626; }
   </style>
 </head>
 <body>
@@ -352,7 +573,7 @@
     <a href="profile.jsp">My Profile</a>
   </div>
   <div class="user-info">
-    <span><%= name %></span>
+    <span><%= h(name) %></span>
     <a class="logout" href="home.jsp?action=logout">Log Out</a>
   </div>
 </nav>
@@ -362,7 +583,7 @@
   <div class="page-header">
     <div>
       <h1>My Study Sessions</h1>
-      <p>Sessions you've joined or are organizing</p>
+      <p>Sessions you've joined, are organizing, or been invited to</p>
     </div>
     <a href="browse_sessions.jsp" class="btn-primary">&#43; Join a Session</a>
   </div>
@@ -371,36 +592,31 @@
     <div class="alert alert-<%= actionMsgType %>"><%= actionMsg %></div>
   <% } %>
 
-  <%
-    String joinedBanner = request.getParameter("joined");
-    if ("1".equals(joinedBanner)) {
-  %>
+  <% if ("1".equals(request.getParameter("joined"))) { %>
     <div class="alert alert-success">&#10003; You have successfully joined the session!</div>
   <% } %>
 
-  <!-- Tab navigation -->
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('upcoming', this)">Upcoming &amp; Current</button>
-    <button class="tab-btn" onclick="switchTab('past', this)">Past Sessions</button>
-  </div>
-
   <%
-    // Load sessions from DB
+    // ── LOAD SESSIONS ────────────────────────────────────────────────────────
     Connection con = null;
     PreparedStatement ps = null;
     ResultSet rs = null;
     String dbError = "";
 
-    // upcoming = date >= today OR date is null
-    // past = date < today
     java.util.List<java.util.Map<String,String>> upcomingSessions = new java.util.ArrayList<>();
     java.util.List<java.util.Map<String,String>> pastSessions     = new java.util.ArrayList<>();
+
+    // Invitations split into three buckets
+    java.util.List<java.util.Map<String,String>> invPending  = new java.util.ArrayList<>();
+    java.util.List<java.util.Map<String,String>> invAccepted = new java.util.ArrayList<>();
+    java.util.List<java.util.Map<String,String>> invDeclined = new java.util.ArrayList<>();
 
     try {
       Class.forName("com.mysql.cj.jdbc.Driver");
       con = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+      java.time.LocalDate today = java.time.LocalDate.now();
 
-      // Sessions the user is attending (joined or organizer)
+      // ── 1. Sessions user is attending ────────────────────────────────────
       ps = con.prepareStatement(
         "SELECT ss.Session_ID, ss.Name, ss.Time, ss.Date, ss.Location, ss.Description, " +
         "       ss.Capacity, ss.Topic, ss.Visibility, ss.Organizer_Username, " +
@@ -414,8 +630,6 @@
       ps.setString(1, username);
       ps.setString(2, username);
       rs = ps.executeQuery();
-
-      java.time.LocalDate today = java.time.LocalDate.now();
 
       while (rs.next()) {
         java.util.Map<String,String> m = new java.util.LinkedHashMap<>();
@@ -436,17 +650,13 @@
         String dateStr = m.get("date");
         boolean isPast = false;
         if (dateStr != null) {
-          try {
-            java.time.LocalDate sessDate = java.time.LocalDate.parse(dateStr);
-            isPast = sessDate.isBefore(today);
-          } catch (Exception ignored) {}
+          try { isPast = java.time.LocalDate.parse(dateStr).isBefore(today); } catch (Exception ignored) {}
         }
-        if (isPast) pastSessions.add(m);
-        else upcomingSessions.add(m);
+        if (isPast) pastSessions.add(m); else upcomingSessions.add(m);
       }
       rs.close(); ps.close();
 
-      // Also fetch sessions the user is organizing but might not be in Attends
+      // ── 2. Sessions user organizes but hasn't joined via Attends ─────────
       ps = con.prepareStatement(
         "SELECT ss.Session_ID, ss.Name, ss.Time, ss.Date, ss.Location, ss.Description, " +
         "       ss.Capacity, ss.Topic, ss.Visibility, ss.Organizer_Username, " +
@@ -480,18 +690,58 @@
         String dateStr = m.get("date");
         boolean isPast = false;
         if (dateStr != null) {
-          try {
-            java.time.LocalDate sessDate = java.time.LocalDate.parse(dateStr);
-            isPast = sessDate.isBefore(java.time.LocalDate.now());
-          } catch (Exception ignored) {}
+          try { isPast = java.time.LocalDate.parse(dateStr).isBefore(java.time.LocalDate.now()); } catch (Exception ignored) {}
         }
-        if (isPast) pastSessions.add(m);
-        else upcomingSessions.add(m);
+        if (isPast) pastSessions.add(m); else upcomingSessions.add(m);
+      }
+      rs.close(); ps.close();
+
+      // ── 3. Invitations (Invited_To WHERE Invitee = user) ─────────────────
+      ps = con.prepareStatement(
+        "SELECT it.Session_ID, it.Inviter, it.Response, " +
+        "       ss.Name, ss.Date, ss.Time, ss.Location, ss.Description, " +
+        "       ss.Topic, ss.Capacity, ss.Organizer_Username, " +
+        "       (SELECT COUNT(*) FROM Attends WHERE Session_ID = ss.Session_ID) AS attendee_count, " +
+        "       inv.Name AS inviter_name " +
+        "FROM Invited_To it " +
+        "JOIN StudySession ss ON ss.Session_ID = it.Session_ID " +
+        "LEFT JOIN Users inv ON inv.Username = it.Inviter " +
+        "WHERE it.Invitee = ? " +
+        "ORDER BY " +
+        "  CASE WHEN (it.Response IS NULL OR it.Response = 'Pending') THEN 0 " +
+        "       WHEN it.Response = 'Accepted' THEN 1 ELSE 2 END ASC, " +
+        "  ss.Date ASC, ss.Time ASC"
+      );
+      ps.setString(1, username);
+      rs = ps.executeQuery();
+
+      while (rs.next()) {
+        java.util.Map<String,String> m = new java.util.LinkedHashMap<>();
+        m.put("sessionId",     rs.getString("Session_ID"));
+        m.put("inviter",       rs.getString("Inviter") != null ? rs.getString("Inviter") : "—");
+        m.put("inviterName",   rs.getString("inviter_name") != null ? rs.getString("inviter_name") : "—");
+        String resp = rs.getString("Response");
+        m.put("response",      resp != null ? resp : "Pending");
+        m.put("name",          rs.getString("Name") != null ? rs.getString("Name") : "Untitled");
+        m.put("date",          rs.getString("Date") != null ? rs.getString("Date") : "TBD");
+        m.put("time",          rs.getString("Time") != null ? rs.getString("Time") : "—");
+        m.put("location",      rs.getString("Location") != null ? rs.getString("Location") : "—");
+        m.put("description",   rs.getString("Description") != null ? rs.getString("Description") : "");
+        m.put("topic",         rs.getString("Topic") != null ? rs.getString("Topic") : "");
+        m.put("organizer",     rs.getString("Organizer_Username") != null ? rs.getString("Organizer_Username") : "—");
+        m.put("attendeeCount", String.valueOf(rs.getInt("attendee_count")));
+        int cap = rs.getInt("Capacity");
+        m.put("capacity",      rs.wasNull() ? "—" : String.valueOf(cap));
+
+        String r = m.get("response");
+        if ("Accepted".equalsIgnoreCase(r))      invAccepted.add(m);
+        else if ("Declined".equalsIgnoreCase(r)) invDeclined.add(m);
+        else                                      invPending.add(m);
       }
       rs.close(); ps.close();
 
     } catch (Exception e) {
-      dbError = "Database error: " + e.getMessage();
+      dbError = "Database error: " + h(e.getMessage());
     } finally {
       if (rs  != null) try { rs.close();  } catch (Exception ignore) {}
       if (ps  != null) try { ps.close();  } catch (Exception ignore) {}
@@ -503,8 +753,29 @@
     <div class="alert alert-error"><%= dbError %></div>
   <% } %>
 
-  <!-- UPCOMING TAB -->
-  <div id="tab-upcoming" class="tab-panel active">
+  <!-- ── Tab navigation ── -->
+  <div class="tabs">
+    <button class="tab-btn <%= "upcoming".equals(activeTab) ? "active" : "" %>"
+            onclick="switchTab('upcoming', this)">
+      Upcoming &amp; Current
+    </button>
+    <button class="tab-btn <%= "past".equals(activeTab) ? "active" : "" %>"
+            onclick="switchTab('past', this)">
+      Past Sessions
+    </button>
+    <button class="tab-btn <%= "invitations".equals(activeTab) ? "active" : "" %>"
+            onclick="switchTab('invitations', this)">
+      &#9993; Invitations
+      <% if (!invPending.isEmpty()) { %>
+        <span class="tab-badge"><%= invPending.size() %></span>
+      <% } %>
+    </button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- UPCOMING TAB                                                           -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div id="tab-upcoming" class="tab-panel <%= "upcoming".equals(activeTab) ? "active" : "" %>">
     <p class="section-summary">
       Showing <strong><%= upcomingSessions.size() %></strong> upcoming or active session(s).
     </p>
@@ -512,49 +783,50 @@
     <% if (upcomingSessions.isEmpty()) { %>
       <div class="no-data">
         <div class="no-data-icon">&#128197;</div>
-        <p>You have no upcoming study sessions.<br/><a href="browse_sessions.jsp">Browse sessions</a> to join one!</p>
+        <p>You have no upcoming study sessions.<br/>
+           <a href="browse_sessions.jsp">Browse sessions</a> to join one!</p>
       </div>
     <% } else { %>
       <div class="sessions-grid">
         <% for (java.util.Map<String,String> sess : upcomingSessions) {
              String vis = sess.get("visibility");
-             String visClass = "badge-public";
-             if ("Private".equals(vis)) visClass = "badge-private";
-             else if ("Friends".equals(vis)) visClass = "badge-friends";
+             String visClass = "Public".equals(vis) ? "badge-public" : "Private".equals(vis) ? "badge-private" : "badge-friends";
              String statusVal = sess.get("status");
-             String statusClass = "badge-confirmed";
-             if ("Pending".equals(statusVal)) statusClass = "badge-pending";
-             else if ("Declined".equals(statusVal)) statusClass = "badge-declined";
-             else if ("Organizer".equals(statusVal)) statusClass = "badge-organizer";
+             String statusClass = "Pending".equals(statusVal) ? "badge-pending" :
+                                  "Declined".equals(statusVal) ? "badge-declined" :
+                                  "Organizer".equals(statusVal) ? "badge-organizer" : "badge-confirmed";
              boolean isOrg = "true".equals(sess.get("isOrganizer"));
         %>
         <div class="session-card">
           <div class="card-top">
-            <h3><%= sess.get("name") %></h3>
-            <span class="badge <%= statusClass %>"><%= statusVal %></span>
+            <h3><%= h(sess.get("name")) %></h3>
+            <span class="badge <%= statusClass %>"><%= h(statusVal) %></span>
           </div>
           <% if (!sess.get("topic").isEmpty()) { %>
-            <span class="tag-topic">&#128218; <%= sess.get("topic") %></span>
+            <span class="tag-topic">&#128218; <%= h(sess.get("topic")) %></span>
           <% } %>
           <div class="meta-grid">
-            <div class="meta-item"><span class="icon">&#128197;</span> <strong><%= sess.get("date") != null ? sess.get("date") : "TBD" %></strong></div>
-            <div class="meta-item"><span class="icon">&#128336;</span> <strong><%= sess.get("time") %></strong></div>
-            <div class="meta-item"><span class="icon">&#128205;</span> <strong><%= sess.get("location") %></strong></div>
-            <div class="meta-item"><span class="icon">&#128101;</span> <strong><%= sess.get("attendeeCount") %><%= !sess.get("capacity").equals("—") ? "/" + sess.get("capacity") : "" %></strong> attending</div>
+            <div class="meta-item"><span class="icon">&#128197;</span> <strong><%= h(sess.get("date") != null ? sess.get("date") : "TBD") %></strong></div>
+            <div class="meta-item"><span class="icon">&#128336;</span> <strong><%= h(sess.get("time")) %></strong></div>
+            <div class="meta-item"><span class="icon">&#128205;</span> <strong><%= h(sess.get("location")) %></strong></div>
+            <div class="meta-item"><span class="icon">&#128101;</span>
+              <strong><%= h(sess.get("attendeeCount")) %><%= !sess.get("capacity").equals("—") ? "/" + h(sess.get("capacity")) : "" %></strong>&nbsp;attending
+            </div>
           </div>
           <% if (!sess.get("description").isEmpty()) { %>
-            <p class="description-text"><%= sess.get("description") %></p>
+            <p class="description-text"><%= h(sess.get("description")) %></p>
           <% } %>
           <div class="card-footer">
             <div>
-              <span class="badge <%= visClass %>" style="margin-right:6px"><%= vis %></span>
-              <span class="organizer-label">by <strong>@<%= sess.get("organizer") %></strong></span>
+              <span class="badge <%= visClass %>" style="margin-right:6px"><%= h(vis) %></span>
+              <span class="organizer-label">by <strong>@<%= h(sess.get("organizer")) %></strong></span>
             </div>
-            <% if (!isOrg) { %>
-              <a class="btn-leave" href="my_sessions.jsp?action=leave&sessionId=<%= sess.get("sessionId") %>"
-                 onclick="return confirm('Leave this session?')">Leave</a>
+            <% if (isOrg) { %>
+              <a class="btn-action btn-leave" href="session_attendees.jsp?sessionId=<%= h(sess.get("sessionId")) %>">View Attendees</a>
             <% } else { %>
-              <a class="btn-leave" href="session_attendees.jsp?sessionId=<%= sess.get("sessionId") %>">View Attendees</a>
+              <a class="btn-action btn-leave"
+                 href="my_sessions.jsp?action=leave&sessionId=<%= h(sess.get("sessionId")) %>&tab=upcoming"
+                 onclick="return confirm('Leave this session?')">Leave</a>
             <% } %>
           </div>
         </div>
@@ -563,8 +835,10 @@
     <% } %>
   </div>
 
-  <!-- PAST TAB -->
-  <div id="tab-past" class="tab-panel">
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- PAST TAB                                                               -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div id="tab-past" class="tab-panel <%= "past".equals(activeTab) ? "active" : "" %>">
     <p class="section-summary">
       Showing <strong><%= pastSessions.size() %></strong> past session(s).
     </p>
@@ -578,42 +852,39 @@
       <div class="sessions-grid">
         <% for (java.util.Map<String,String> sess : pastSessions) {
              String vis = sess.get("visibility");
-             String visClass = "badge-public";
-             if ("Private".equals(vis)) visClass = "badge-private";
-             else if ("Friends".equals(vis)) visClass = "badge-friends";
+             String visClass = "Public".equals(vis) ? "badge-public" : "Private".equals(vis) ? "badge-private" : "badge-friends";
              String statusVal = sess.get("status");
-             String statusClass = "badge-confirmed";
-             if ("Pending".equals(statusVal)) statusClass = "badge-pending";
-             else if ("Declined".equals(statusVal)) statusClass = "badge-declined";
-             else if ("Organizer".equals(statusVal)) statusClass = "badge-organizer";
+             String statusClass = "Pending".equals(statusVal) ? "badge-pending" :
+                                  "Declined".equals(statusVal) ? "badge-declined" :
+                                  "Organizer".equals(statusVal) ? "badge-organizer" : "badge-confirmed";
              boolean isOrg = "true".equals(sess.get("isOrganizer"));
         %>
         <div class="session-card past">
           <div class="card-top">
-            <h3><%= sess.get("name") %></h3>
+            <h3><%= h(sess.get("name")) %></h3>
             <span class="badge badge-past">Past</span>
           </div>
           <% if (!sess.get("topic").isEmpty()) { %>
-            <span class="tag-topic">&#128218; <%= sess.get("topic") %></span>
+            <span class="tag-topic">&#128218; <%= h(sess.get("topic")) %></span>
           <% } %>
           <div class="meta-grid">
-            <div class="meta-item"><span class="icon">&#128197;</span> <strong><%= sess.get("date") != null ? sess.get("date") : "—" %></strong></div>
-            <div class="meta-item"><span class="icon">&#128336;</span> <strong><%= sess.get("time") %></strong></div>
-            <div class="meta-item"><span class="icon">&#128205;</span> <strong><%= sess.get("location") %></strong></div>
-            <div class="meta-item"><span class="icon">&#128101;</span> <span><strong><%= sess.get("attendeeCount") %></strong> attended</span></div>
+            <div class="meta-item"><span class="icon">&#128197;</span> <strong><%= h(sess.get("date") != null ? sess.get("date") : "—") %></strong></div>
+            <div class="meta-item"><span class="icon">&#128336;</span> <strong><%= h(sess.get("time")) %></strong></div>
+            <div class="meta-item"><span class="icon">&#128205;</span> <strong><%= h(sess.get("location")) %></strong></div>
+            <div class="meta-item"><span class="icon">&#128101;</span> <strong><%= h(sess.get("attendeeCount")) %></strong>&nbsp;attended</div>
           </div>
           <% if (!sess.get("description").isEmpty()) { %>
-            <p class="description-text"><%= sess.get("description") %></p>
+            <p class="description-text"><%= h(sess.get("description")) %></p>
           <% } %>
           <div class="card-footer">
             <div>
-              <span class="badge <%= visClass %>" style="margin-right:6px"><%= vis %></span>
-              <span class="organizer-label">by <strong>@<%= sess.get("organizer") %></strong></span>
+              <span class="badge <%= visClass %>" style="margin-right:6px"><%= h(vis) %></span>
+              <span class="organizer-label">by <strong>@<%= h(sess.get("organizer")) %></strong></span>
             </div>
             <% if (isOrg) { %>
-              <a class="btn-leave" href="session_attendees.jsp?sessionId=<%= sess.get("sessionId") %>">View Attendees</a>
+              <a class="btn-action btn-leave" href="session_attendees.jsp?sessionId=<%= h(sess.get("sessionId")) %>">View Attendees</a>
             <% } else { %>
-              <span class="badge <%= statusClass %>"><%= statusVal %></span>
+              <span class="badge <%= statusClass %>"><%= h(statusVal) %></span>
             <% } %>
           </div>
         </div>
@@ -622,15 +893,250 @@
     <% } %>
   </div>
 
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- INVITATIONS TAB                                                        -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div id="tab-invitations" class="tab-panel <%= "invitations".equals(activeTab) ? "active" : "" %>">
+
+    <!-- Sub-tabs: Pending / Accepted / Declined -->
+    <div class="inv-subtabs">
+      <button class="inv-stab active" onclick="switchSubTab('inv-pending', this)">
+        &#9200; Pending
+        <% if (!invPending.isEmpty()) { %>&nbsp;(<%= invPending.size() %>)<% } %>
+      </button>
+      <button class="inv-stab" onclick="switchSubTab('inv-accepted', this)">
+        &#10003; Accepted
+        <% if (!invAccepted.isEmpty()) { %>&nbsp;(<%= invAccepted.size() %>)<% } %>
+      </button>
+      <button class="inv-stab" onclick="switchSubTab('inv-declined', this)">
+        &#10005; Declined
+        <% if (!invDeclined.isEmpty()) { %>&nbsp;(<%= invDeclined.size() %>)<% } %>
+      </button>
+    </div>
+
+    <!-- PENDING invitations -->
+    <div id="inv-pending" class="inv-subpanel active">
+      <p class="section-summary">
+        <strong><%= invPending.size() %></strong> pending invitation(s) waiting for your response.
+      </p>
+      <% if (invPending.isEmpty()) { %>
+        <div class="no-data">
+          <div class="no-data-icon">&#9993;</div>
+          <p>No pending invitations.<br/>
+             When someone invites you to a private session, it will appear here.</p>
+        </div>
+      <% } else { %>
+        <div class="sessions-grid">
+          <% for (java.util.Map<String,String> inv : invPending) { %>
+          <div class="session-card invite">
+            <div class="card-top">
+              <h3><%= h(inv.get("name")) %></h3>
+              <div class="badges">
+                <span class="badge badge-inv-pending">&#9200; Pending</span>
+                <span class="badge badge-private">&#128274; Private</span>
+              </div>
+            </div>
+            <% if (!inv.get("topic").isEmpty()) { %>
+              <span class="tag-topic">&#128218; <%= h(inv.get("topic")) %></span>
+            <% } %>
+            <div class="inviter-row">
+              &#128100; Invited by <strong><%= h(inv.get("inviterName")) %></strong> (@<%= h(inv.get("inviter")) %>)
+            </div>
+            <div class="meta-grid">
+              <div class="meta-item"><span class="icon">&#128197;</span> <strong><%= h(inv.get("date")) %></strong></div>
+              <div class="meta-item"><span class="icon">&#128336;</span> <strong><%= h(inv.get("time")) %></strong></div>
+              <div class="meta-item"><span class="icon">&#128205;</span> <strong><%= h(inv.get("location")) %></strong></div>
+              <div class="meta-item"><span class="icon">&#128101;</span>
+                <strong><%= h(inv.get("attendeeCount")) %><%= !inv.get("capacity").equals("—") ? "/" + h(inv.get("capacity")) : "" %></strong>&nbsp;attending
+              </div>
+            </div>
+            <% if (!inv.get("description").isEmpty()) { %>
+              <p class="description-text"><%= h(inv.get("description")) %></p>
+            <% } %>
+            <div class="card-footer">
+              <span class="organizer-label">by <strong>@<%= h(inv.get("organizer")) %></strong></span>
+              <div style="display:flex;gap:7px;">
+                <button class="btn-action btn-decline-inv"
+                        onclick="openDeclineModal('<%= h(inv.get("sessionId")) %>', '<%= h(inv.get("name")).replace("'","\\'"  ) %>')">
+                  Decline
+                </button>
+                <a class="btn-action btn-accept"
+                   href="my_sessions.jsp?action=accept_invite&sessionId=<%= h(inv.get("sessionId")) %>">
+                  &#10003; Accept
+                </a>
+              </div>
+            </div>
+          </div>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+
+    <!-- ACCEPTED invitations -->
+    <div id="inv-accepted" class="inv-subpanel">
+      <p class="section-summary">
+        <strong><%= invAccepted.size() %></strong> accepted invitation(s).
+      </p>
+      <% if (invAccepted.isEmpty()) { %>
+        <div class="no-data">
+          <div class="no-data-icon">&#10003;</div>
+          <p>No accepted invitations yet.</p>
+        </div>
+      <% } else { %>
+        <div class="sessions-grid">
+          <% for (java.util.Map<String,String> inv : invAccepted) { %>
+          <div class="session-card inv-accepted">
+            <div class="card-top">
+              <h3><%= h(inv.get("name")) %></h3>
+              <div class="badges">
+                <span class="badge badge-inv-accepted">&#10003; Accepted</span>
+                <span class="badge badge-private">&#128274; Private</span>
+              </div>
+            </div>
+            <% if (!inv.get("topic").isEmpty()) { %>
+              <span class="tag-topic">&#128218; <%= h(inv.get("topic")) %></span>
+            <% } %>
+            <div class="inviter-row">
+              &#128100; Invited by <strong><%= h(inv.get("inviterName")) %></strong> (@<%= h(inv.get("inviter")) %>)
+            </div>
+            <div class="meta-grid">
+              <div class="meta-item"><span class="icon">&#128197;</span> <strong><%= h(inv.get("date")) %></strong></div>
+              <div class="meta-item"><span class="icon">&#128336;</span> <strong><%= h(inv.get("time")) %></strong></div>
+              <div class="meta-item"><span class="icon">&#128205;</span> <strong><%= h(inv.get("location")) %></strong></div>
+              <div class="meta-item"><span class="icon">&#128101;</span>
+                <strong><%= h(inv.get("attendeeCount")) %><%= !inv.get("capacity").equals("—") ? "/" + h(inv.get("capacity")) : "" %></strong>&nbsp;attending
+              </div>
+            </div>
+            <% if (!inv.get("description").isEmpty()) { %>
+              <p class="description-text"><%= h(inv.get("description")) %></p>
+            <% } %>
+            <div class="card-footer">
+              <span class="organizer-label">by <strong>@<%= h(inv.get("organizer")) %></strong></span>
+              <a href="my_sessions.jsp?tab=upcoming"
+                 style="font-size:12px;color:#059669;font-weight:700;text-decoration:none;">
+                View in Upcoming &#8594;
+              </a>
+            </div>
+          </div>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+
+    <!-- DECLINED invitations -->
+    <div id="inv-declined" class="inv-subpanel">
+      <p class="section-summary">
+        <strong><%= invDeclined.size() %></strong> declined invitation(s).
+      </p>
+      <% if (invDeclined.isEmpty()) { %>
+        <div class="no-data">
+          <div class="no-data-icon">&#10005;</div>
+          <p>No declined invitations.</p>
+        </div>
+      <% } else { %>
+        <div class="sessions-grid">
+          <% for (java.util.Map<String,String> inv : invDeclined) { %>
+          <div class="session-card inv-declined">
+            <div class="card-top">
+              <h3><%= h(inv.get("name")) %></h3>
+              <div class="badges">
+                <span class="badge badge-inv-declined">&#10005; Declined</span>
+                <span class="badge badge-private">&#128274; Private</span>
+              </div>
+            </div>
+            <% if (!inv.get("topic").isEmpty()) { %>
+              <span class="tag-topic">&#128218; <%= h(inv.get("topic")) %></span>
+            <% } %>
+            <div class="inviter-row">
+              &#128100; Invited by <strong><%= h(inv.get("inviterName")) %></strong> (@<%= h(inv.get("inviter")) %>)
+            </div>
+            <div class="meta-grid">
+              <div class="meta-item"><span class="icon">&#128197;</span> <strong><%= h(inv.get("date")) %></strong></div>
+              <div class="meta-item"><span class="icon">&#128336;</span> <strong><%= h(inv.get("time")) %></strong></div>
+              <div class="meta-item"><span class="icon">&#128205;</span> <strong><%= h(inv.get("location")) %></strong></div>
+              <div class="meta-item"><span class="icon">&#128101;</span>
+                <strong><%= h(inv.get("attendeeCount")) %><%= !inv.get("capacity").equals("—") ? "/" + h(inv.get("capacity")) : "" %></strong>&nbsp;attending
+              </div>
+            </div>
+            <% if (!inv.get("description").isEmpty()) { %>
+              <p class="description-text"><%= h(inv.get("description")) %></p>
+            <% } %>
+            <div class="card-footer">
+              <span class="organizer-label">by <strong>@<%= h(inv.get("organizer")) %></strong></span>
+            </div>
+          </div>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+
+  </div><!-- /tab-invitations -->
+
+</div><!-- /container -->
+
+<!-- Decline confirmation modal -->
+<div id="declineModal" class="modal-backdrop" aria-hidden="true">
+  <div class="modal">
+    <h3>Decline Invitation?</h3>
+    <p id="declineModalText">Are you sure you want to decline this invitation?</p>
+    <div class="modal-actions">
+      <button class="btn-modal-cancel" onclick="closeDeclineModal()">Cancel</button>
+      <a id="declineConfirmLink" href="#" class="btn-action btn-modal-confirm">Yes, Decline</a>
+    </div>
+  </div>
 </div>
 
 <script>
+  // ── Main tab switching ───────────────────────────────────────────────────
   function switchTab(id, btn) {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + id).classList.add('active');
     btn.classList.add('active');
   }
+
+  // ── Invitation sub-tab switching ────────────────────────────────────────
+  function switchSubTab(id, btn) {
+    document.querySelectorAll('.inv-subpanel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.inv-stab').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    btn.classList.add('active');
+  }
+
+  // ── Decline modal ────────────────────────────────────────────────────────
+  function openDeclineModal(sessionId, sessionName) {
+    document.getElementById('declineModalText').textContent =
+      'Are you sure you want to decline the invitation to "' + sessionName + '"?';
+    document.getElementById('declineConfirmLink').href =
+      'my_sessions.jsp?action=decline_invite&sessionId=' + encodeURIComponent(sessionId);
+    var m = document.getElementById('declineModal');
+    m.classList.add('open');
+    m.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeDeclineModal() {
+    var m = document.getElementById('declineModal');
+    m.classList.remove('open');
+    m.setAttribute('aria-hidden', 'true');
+  }
+
+  window.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeDeclineModal();
+  });
+
+  // ── Restore active tab from URL param ───────────────────────────────────
+  (function() {
+    var tab = '<%= activeTab %>';
+    if (tab && tab !== 'upcoming') {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      var panel = document.getElementById('tab-' + tab);
+      var btns  = document.querySelectorAll('.tab-btn');
+      var idx   = tab === 'past' ? 1 : tab === 'invitations' ? 2 : 0;
+      if (panel)     panel.classList.add('active');
+      if (btns[idx]) btns[idx].classList.add('active');
+    }
+  })();
 </script>
 </body>
 </html>
