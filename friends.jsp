@@ -389,7 +389,7 @@
       <a href="schedule.jsp">My Schedule</a>
       <a href="create_session.jsp">+ Create Session</a>
       <a href="browse_sessions.jsp">Browse Sessions</a>
-      <a href="my_sessions.jsp" class="active">My Sessions</a>
+      <a href="my_sessions.jsp">My Sessions</a>
       <a href="people.jsp">Find People</a>
       <a href="friends.jsp" class="active">Friends</a>
       <a href="profile.jsp">My Profile</a>
