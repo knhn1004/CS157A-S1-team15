@@ -563,8 +563,8 @@
   <nav>
     <span class="brand">&#128218; SpartanStudyCircle</span>
     <div class="nav-links">
-      <a href="home.jsp" class="active">Home</a>
-      <a href="schedule.jsp">My Schedule</a>
+      <a href="home.jsp">Home</a>
+      <a href="schedule.jsp" class="active">My Schedule</a>
       <a href="create_session.jsp">+ Create Session</a>
       <a href="browse_sessions.jsp">Browse Sessions</a>
       <a href="my_sessions.jsp">My Sessions</a>
